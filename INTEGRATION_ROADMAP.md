@@ -184,13 +184,26 @@ Log in as each role → correct `/{role}/dashboard`; wrong-role URL → redirect
       `staff/bookings`, `admin/calendar`, `admin/walk-in`, `staff/walk-in`,
       `admin/services`, `staff/doctor-status` (increment 2). `next build` green.
 
+### `patients` + `staff_accounts` reads — done
+- [x] `StaffAccountsController` (new): `GET /api/staff-accounts?role=`, `/{id}`,
+      `/me`, `PUT /{id}`. Patients controller already had list/{id}/me/consent.
+- [x] `src/lib/data/patients.ts` + `staff.ts`; parity `patients` (2) +
+      `staff_accounts` (4) **clean**. Flipped in `mode.ts`.
+- [x] Browser token flow: `GET /api/session/token` (same-origin) + browser
+      `tokenProvider` in `src/lib/api/client.ts` (server reads the cookie
+      directly) + 401-retry. Needed for client components to hit protected
+      .NET endpoints. **§17: token is handed to same-origin JS — harden later.**
+- [x] Migrated: `admin/patients`, `staff/patients`, `admin/staff`,
+      `admin/walk-in`, `staff/walk-in` (patient picker). In-browser verified.
+
 ### Remaining
-- [ ] `patients`, `staff_accounts` data modules + `GET /api/patients/{id}|me|list`,
-      `PUT /api/patients/{id}|consent`, `staff_accounts` list/PUT
 - [ ] `doctor_schedules` / `doctor_services` / `doctor_blocked_dates` /
-      `doctor_day_statuses` data modules
-- [ ] Doctor **writes** (`admin/doctors/[id]/edit`, `DoctorForm`, `doctor/profile`,
-      `doctor/schedule`) → `PUT /api/doctors/{id}` + schedule/service endpoints
+      `doctor_day_statuses` data modules + their read sites (`doctor/schedule`,
+      `patient/doctors/[id]`, booking wizard, walk-in day-status, …)
+- [ ] Per-patient detail pages (`admin/patients/[id]`, `staff/patients/[id]`,
+      `doctor/patients/[id]` — the last derives from bookings, → Phase 4)
+- [ ] Writes: doctor edit (`admin/doctors/[id]/edit`, `DoctorForm`,
+      `doctor/profile`, `doctor/schedule`), patient edit/create, staff status/PUT
 
 ### Backend
 - [ ] `GET /api/patients/{id}`, `/me`, list (search by `patient_code`/name/contact,
