@@ -38,6 +38,7 @@ public class VitalsController(ClinicAppDbContext db) : ControllerBase
 
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(now.Date);
+        var uid = CurrentUserId();
         var existing = await db.PatientVitalReadings.Where(r => r.BookingId == bookingId).ToListAsync(ct);
 
         foreach (var input in readings)
@@ -58,6 +59,7 @@ public class VitalsController(ClinicAppDbContext db) : ControllerBase
                     TemplateId = input.TemplateId,
                     Value = input.Value,
                     RecordedAt = today,
+                    RecordedByUserId = uid,
                     CreatedAt = now,
                     UpdatedAt = now
                 });
@@ -65,11 +67,18 @@ public class VitalsController(ClinicAppDbContext db) : ControllerBase
             else
             {
                 row.Value = input.Value;
+                row.RecordedByUserId = uid;
                 row.UpdatedAt = now;
             }
         }
 
         await db.SaveChangesAsync(ct);
         return Ok(await db.PatientVitalReadings.AsNoTracking().Where(r => r.BookingId == bookingId).ToListAsync(ct));
+    }
+
+    private Guid? CurrentUserId()
+    {
+        var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        return Guid.TryParse(sub, out var id) ? id : null;
     }
 }

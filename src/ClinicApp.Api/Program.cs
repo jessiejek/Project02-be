@@ -47,6 +47,10 @@ builder.Services.AddDbContext<ClinicAppDbContext>(options =>
     {
         options.UseSqlServer(connectionString).UseSnakeCaseNamingConvention();
     }
+    if (builder.Environment.IsDevelopment())
+    {
+        options.EnableDetailedErrors();
+    }
 });
 
 // ── Auth: JWT options, token service, password hasher ──────────────────────

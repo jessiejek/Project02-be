@@ -59,6 +59,8 @@ public class PatientVitalReading : IHasUpdatedAt
     public Guid TemplateId { get; set; }
     public string Value { get; set; } = "";
     public DateOnly RecordedAt { get; set; }
+    /// <summary>§16.1 — staff-like user who took the reading at intake.</summary>
+    public Guid? RecordedByUserId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
