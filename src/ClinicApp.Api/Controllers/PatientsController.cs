@@ -34,6 +34,25 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
         return patient is null ? NotFound() : Ok(patient);
     }
 
+    /// <summary>Create a patient record (guest / staff quick-register). No auth
+    /// account is linked here — contract §9 keeps that a separate layer.</summary>
+    [Authorize(Roles = "Admin,Staff,Doctor")]
+    [HttpPost]
+    public async Task<ActionResult<Patient>> Create(Patient payload, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        payload.PatientId = payload.PatientId == Guid.Empty ? Guid.NewGuid() : payload.PatientId;
+        payload.UserId = null;
+        payload.CreatedAt = now;
+        payload.UpdatedAt = now;
+        if (string.IsNullOrWhiteSpace(payload.PatientCode))
+            payload.PatientCode = $"MF-{Random.Shared.Next(1000, 10000)}";
+
+        db.Patients.Add(payload);
+        await db.SaveChangesAsync(ct);
+        return CreatedAtAction(nameof(GetById), new { id = payload.PatientId }, payload);
+    }
+
     /// <summary>The logged-in patient's own row.</summary>
     [HttpGet("me")]
     public async Task<ActionResult<Patient>> GetMine(CancellationToken ct)
