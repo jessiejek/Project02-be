@@ -135,23 +135,31 @@ public class DoctorsController(ClinicAppDbContext db) : ControllerBase
     public async Task<ActionResult<DoctorDayStatus?>> GetDayStatus(Guid id, [FromQuery] DateOnly date, CancellationToken ct) =>
         Ok(await db.DoctorDayStatuses.AsNoTracking().SingleOrDefaultAsync(s => s.DoctorId == id && s.StatusDate == date, ct));
 
+    /// <summary>All doctors' status for a date (staff/doctor-status board).</summary>
+    [HttpGet("day-statuses")]
+    public async Task<ActionResult<List<DoctorDayStatus>>> GetDayStatuses([FromQuery] DateOnly date, CancellationToken ct) =>
+        Ok(await db.DoctorDayStatuses.AsNoTracking().Where(s => s.StatusDate == date).ToListAsync(ct));
+
     [Authorize(Roles = "Admin,Doctor,Staff")]
     [HttpPut("{id:guid}/day-status")]
     public async Task<IActionResult> UpsertDayStatus(Guid id, DoctorDayStatus payload, CancellationToken ct)
     {
         // Conflict key: (doctor_id, status_date) — contract §4.
+        var now = DateTimeOffset.UtcNow;
         var existing = await db.DoctorDayStatuses.SingleOrDefaultAsync(s => s.DoctorId == id && s.StatusDate == payload.StatusDate, ct);
         if (existing is null)
         {
             payload.Id = Guid.NewGuid();
             payload.DoctorId = id;
-            payload.CreatedAt = DateTimeOffset.UtcNow;
+            payload.CreatedAt = now;
+            payload.UpdatedAt = now;
             db.DoctorDayStatuses.Add(payload);
         }
         else
         {
             existing.Status = payload.Status;
             existing.RunningLateMinutes = payload.RunningLateMinutes;
+            existing.UpdatedAt = now;
         }
 
         await db.SaveChangesAsync(ct);

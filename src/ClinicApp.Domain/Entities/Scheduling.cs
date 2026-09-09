@@ -15,7 +15,7 @@ public class DoctorSchedule : IHasUpdatedAt
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
-    [JsonIgnore] public Doctor Doctor { get; set; } = null!;
+    [JsonIgnore] public Doctor? Doctor { get; set; }
 }
 
 public class DoctorBlockedDate
@@ -26,7 +26,7 @@ public class DoctorBlockedDate
     public string? Reason { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 
-    [JsonIgnore] public Doctor Doctor { get; set; } = null!;
+    [JsonIgnore] public Doctor? Doctor { get; set; }
 }
 
 /// <summary>Conflict key used by frontend: (doctor_id, status_date).</summary>
@@ -40,5 +40,5 @@ public class DoctorDayStatus : IHasUpdatedAt
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
-    [JsonIgnore] public Doctor Doctor { get; set; } = null!;
+    [JsonIgnore] public Doctor? Doctor { get; set; }
 }
