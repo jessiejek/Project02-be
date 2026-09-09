@@ -36,6 +36,17 @@ public class VUnpaidCompletedVisit
     public PaymentStatus? PaymentStatus { get; set; }
 }
 
+/// <summary>§16.9 — one row per doctor per calendar month of completed visits.</summary>
+public class VDoctorEarnings
+{
+    public Guid? DoctorId { get; set; }
+    public string? Period { get; set; }        // 'YYYY-MM'
+    public int? CompletedVisits { get; set; }
+    public decimal? GrossBilled { get; set; }  // Σ total_fee of completed bookings
+    public decimal? Collected { get; set; }    // Σ amount of Paid payments
+    public decimal? Waived { get; set; }       // Σ amount of Waived payments
+}
+
 public class VPendingFollowUp
 {
     public Guid? FollowUpId { get; set; }

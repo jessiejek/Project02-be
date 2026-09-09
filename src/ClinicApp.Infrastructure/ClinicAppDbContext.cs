@@ -68,6 +68,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     public DbSet<VDailyBookingSummary> VDailyBookingSummaries => Set<VDailyBookingSummary>();
     public DbSet<VUnpaidCompletedVisit> VUnpaidCompletedVisits => Set<VUnpaidCompletedVisit>();
     public DbSet<VPendingFollowUp> VPendingFollowUps => Set<VPendingFollowUp>();
+    public DbSet<VDoctorEarnings> VDoctorEarnings => Set<VDoctorEarnings>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -306,6 +307,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         modelBuilder.Entity<VDailyBookingSummary>(e => { e.HasNoKey(); e.ToView("v_daily_booking_summary"); });
         modelBuilder.Entity<VUnpaidCompletedVisit>(e => { e.HasNoKey(); e.ToView("v_unpaid_completed_visits"); });
         modelBuilder.Entity<VPendingFollowUp>(e => { e.HasNoKey(); e.ToView("v_pending_follow_ups"); });
+        modelBuilder.Entity<VDoctorEarnings>(e => { e.HasNoKey(); e.ToView("v_doctor_earnings"); });
 
         SeedData.Apply(modelBuilder);
     }

@@ -29,4 +29,33 @@ public class ReportsController(ClinicAppDbContext db) : ControllerBase
     [HttpGet("pending-follow-ups")]
     public async Task<ActionResult<List<VPendingFollowUp>>> GetPendingFollowUps(CancellationToken ct) =>
         Ok(await db.VPendingFollowUps.AsNoTracking().ToListAsync(ct));
+
+    /// <summary>§16.9 — monthly earnings for the single doctor. A Doctor caller
+    /// only ever sees their own rows; Admin may pass ?doctorId= to scope, or omit
+    /// it for all doctors.</summary>
+    [HttpGet("doctor-earnings")]
+    [Authorize(Roles = "Doctor,Admin")]
+    public async Task<ActionResult<List<VDoctorEarnings>>> GetDoctorEarnings(
+        [FromQuery] Guid? doctorId, CancellationToken ct)
+    {
+        var q = db.VDoctorEarnings.AsNoTracking().AsQueryable();
+
+        if (User.IsInRole("Doctor") && !User.IsInRole("Admin"))
+        {
+            var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(sub, out var uid)) return Forbid();
+            var myDoctorId = await db.StaffAccounts
+                .Where(s => s.UserId == uid)
+                .Select(s => (Guid?)s.StaffId)
+                .SingleOrDefaultAsync(ct);
+            if (myDoctorId is null) return Forbid();
+            q = q.Where(e => e.DoctorId == myDoctorId);
+        }
+        else if (doctorId is not null)
+        {
+            q = q.Where(e => e.DoctorId == doctorId);
+        }
+
+        return Ok(await q.OrderByDescending(e => e.Period).ToListAsync(ct));
+    }
 }
