@@ -178,13 +178,17 @@ Log in as each role → correct `/{role}/dashboard`; wrong-role URL → redirect
       `admin/doctors`. Live-verified via `AUTH_MODE=dotnet` — page renders from
       .NET, Inactive doctor correctly hidden (Supabase anon-key path leaked it).
 
+### `doctors` reads — done (all 16 sites)
+- [x] `patient/doctors`, `patient/doctors/[id]`, `admin/doctors` (increment 1)
+- [x] `booking`, `patient/dashboard`, `admin/dashboard`, `admin/bookings`,
+      `staff/bookings`, `admin/calendar`, `admin/walk-in`, `staff/walk-in`,
+      `admin/services`, `staff/doctor-status` (increment 2). `next build` green.
+
 ### Remaining
 - [ ] `patients`, `staff_accounts` data modules + `GET /api/patients/{id}|me|list`,
       `PUT /api/patients/{id}|consent`, `staff_accounts` list/PUT
 - [ ] `doctor_schedules` / `doctor_services` / `doctor_blocked_dates` /
       `doctor_day_statuses` data modules
-- [ ] Remaining ~13 `supabase.from("doctors")` read sites (booking, dashboards,
-      calendar, walk-in, staff/doctor-status, admin/services, …)
 - [ ] Doctor **writes** (`admin/doctors/[id]/edit`, `DoctorForm`, `doctor/profile`,
       `doctor/schedule`) → `PUT /api/doctors/{id}` + schedule/service endpoints
 
