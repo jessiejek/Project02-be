@@ -6,7 +6,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
 
-public record RxItemInput(Guid MedicineId, string GenericName, string Dosage, string Quantity, string? Instruction, bool IsControlledSubstance);
+public record RxItemInput(
+    Guid MedicineId, string GenericName, string Dosage, string Quantity,
+    string? Instruction, bool IsControlledSubstance,
+    // §16.8 Form 1 — structured Rx-pad fields, all optional.
+    string? Timing = null, string? MealRelation = null,
+    string? DurationKind = null, int? DurationValue = null, string? Indication = null);
 public record UpsertRxGroupRequest(Guid PatientId, Guid DoctorId, Guid BookingId, List<RxItemInput> Items);
 public record UpsertRxTemplateRequest(Guid DoctorId, string Title, bool IsSystemTemplate, List<RxItemInput> Items);
 public record FavoriteMedicineInput(Guid MedicineId, string GenericName, string Dosage, string Quantity, string? Instruction);
@@ -66,7 +71,10 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
             {
                 Id = Guid.NewGuid(), GroupId = g.GroupId, MedicineId = i.MedicineId,
                 GenericName = i.GenericName, Dosage = i.Dosage, Quantity = i.Quantity,
-                Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance, CreatedAt = now
+                Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance,
+                Timing = i.Timing, MealRelation = i.MealRelation,
+                DurationKind = i.DurationKind, DurationValue = i.DurationValue, Indication = i.Indication,
+                CreatedAt = now
             });
         }
         await db.SaveChangesAsync(ct);

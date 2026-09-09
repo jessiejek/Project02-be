@@ -28,6 +28,12 @@ public class LookupsController(ClinicAppDbContext db) : ControllerBase
     public async Task<ActionResult<List<VitalFieldTemplate>>> GetVitalFieldTemplates(CancellationToken ct) =>
         Ok(await db.VitalFieldTemplates.AsNoTracking().OrderBy(v => v.Description).ToListAsync(ct));
 
+    /// <summary>§16.8 Form 3 — fixed lab-request panel (9 pre-printed + add-ons).</summary>
+    [HttpGet("api/lab-test-catalog")]
+    public async Task<ActionResult<List<LabTestCatalog>>> GetLabTestCatalog(CancellationToken ct) =>
+        Ok(await db.LabTestCatalog.AsNoTracking()
+            .OrderBy(t => t.SortOrder).ThenBy(t => t.Name).ToListAsync(ct));
+
     /// <summary>ICD-10 code search (contract §15 gap — no FE caller today; the
     /// Phase 5 diagnosis picker will use it).</summary>
     [HttpGet("api/icd10-codes")]

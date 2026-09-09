@@ -53,6 +53,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
 
     // Labs & files
     public DbSet<LabOrder> LabOrders => Set<LabOrder>();
+    public DbSet<LabTestCatalog> LabTestCatalog => Set<LabTestCatalog>();
     public DbSet<PatientVaccination> PatientVaccinations => Set<PatientVaccination>();
     public DbSet<PatientDocument> PatientDocuments => Set<PatientDocument>();
     public DbSet<PatientLabResult> PatientLabResults => Set<PatientLabResult>();
@@ -293,7 +294,17 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         });
 
         // ── Labs & files ────────────────────────────────────────────────
-        modelBuilder.Entity<LabOrder>(e => e.HasKey(l => l.LabOrderId));
+        modelBuilder.Entity<LabOrder>(e =>
+        {
+            e.HasKey(l => l.LabOrderId);
+            e.HasOne<LabTestCatalog>().WithMany().HasForeignKey(l => l.LabTestId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<LabTestCatalog>(e =>
+        {
+            e.HasKey(t => t.LabTestId);
+            e.HasIndex(t => t.Name).IsUnique();
+        });
         modelBuilder.Entity<PatientVaccination>(e => e.HasKey(v => v.Id));
         modelBuilder.Entity<PatientDocument>(e => e.HasKey(d => d.Id));
         modelBuilder.Entity<PatientLabResult>(e => e.HasKey(r => r.Id));

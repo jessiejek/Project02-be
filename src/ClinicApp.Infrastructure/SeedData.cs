@@ -67,6 +67,14 @@ internal static class SeedData
             new VitalFieldTemplate { TemplateId = Guid.Parse("11111111-0000-0000-0000-000000000009"), Description = "Fetal Heart Rate", FormKey = "fetal_heart_rate", Unit = "", Icon = "heart_pulse", IsDefault = false, CreatedAt = SeedTimestamp }
         );
 
+        // §16.8 Form 3 — the clinic's pre-printed lab panel (is_default) + common add-ons.
+        modelBuilder.Entity<LabTestCatalog>().HasData(
+            Lab(1, "CBC", true), Lab(2, "URINALYSIS", true), Lab(3, "LIPID PROFILE", true),
+            Lab(4, "SGPT", true), Lab(5, "CREA", true), Lab(6, "FBS", true),
+            Lab(7, "BUA", true), Lab(8, "DENGUE NS1/IgG/IgM", true), Lab(9, "ECG 12L", true),
+            Lab(10, "TSH", false), Lab(11, "FT3", false), Lab(12, "FT4", false), Lab(13, "HbA1c", false)
+        );
+
         modelBuilder.Entity<Medicine>().HasData(
             Med(1, "PARACETAMOL 500MG TAB"),
             Med(2, "AMOXICILLIN + CLAVULANIC ACID (CO-AMOXICLAV) 500MG TAB"),
@@ -92,6 +100,15 @@ internal static class SeedData
     {
         MedicineId = Guid.Parse($"22222222-0000-0000-0000-{n:D12}"),
         GenericName = genericName,
+        CreatedAt = SeedTimestamp
+    };
+
+    private static LabTestCatalog Lab(int n, string name, bool isDefault) => new()
+    {
+        LabTestId = Guid.Parse($"33333333-0000-0000-0000-{n:D12}"),
+        Name = name,
+        IsDefault = isDefault,
+        SortOrder = n,
         CreatedAt = SeedTimestamp
     };
 }

@@ -35,6 +35,12 @@ public class PrescriptionLineItem
     public string Quantity { get; set; } = "";
     public string? Instruction { get; set; }
     public bool IsControlledSubstance { get; set; }
+    // §16.8 Form 1 — structured Rx-pad fields (all optional; free-text `Instruction` stays the fallback).
+    public string? Timing { get; set; }           // e.g. "1 tab TID"
+    public string? MealRelation { get; set; }     // "before meals" | "after meals" | "with food" | ...
+    public string? DurationKind { get; set; }     // "days" | "weeks" | "months" | "ongoing"
+    public int? DurationValue { get; set; }
+    public string? Indication { get; set; }       // "for fever", "for cough", ...
     public DateTimeOffset CreatedAt { get; set; }
 
     [JsonIgnore] public PrescriptionGroup Group { get; set; } = null!;
