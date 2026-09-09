@@ -27,11 +27,20 @@ public record DiagnosisInput(string? Icd10Code, string? CustomDescription, Diagn
 [Route("api/consultations")]
 public class ConsultationsController(ClinicAppDbContext db) : ControllerBase
 {
+    // §6 embeds: bookings(appointment_date, doctor_id), doctors(staff_accounts(full_name)),
+    // consultation_diagnoses(custom_description, type), follow_ups(follow_up_date, instructions).
+    private IQueryable<Consultation> WithEmbeds() =>
+        db.Consultations.AsNoTracking()
+            .Include(c => c.Booking)
+            .Include(c => c.Doctor).ThenInclude(d => d!.StaffAccount)
+            .Include(c => c.ConsultationDiagnoses)
+            .Include(c => c.FollowUp);
+
     [HttpGet]
     public async Task<ActionResult<List<Consultation>>> GetAll(
         [FromQuery] Guid? patientId, [FromQuery] Guid? doctorId, [FromQuery] Guid? bookingId, CancellationToken ct)
     {
-        var q = db.Consultations.AsNoTracking().AsQueryable();
+        var q = WithEmbeds();
         if (patientId is not null) q = q.Where(c => c.PatientId == patientId);
         if (doctorId is not null) q = q.Where(c => c.DoctorId == doctorId);
         if (bookingId is not null) q = q.Where(c => c.BookingId == bookingId);
@@ -41,14 +50,14 @@ public class ConsultationsController(ClinicAppDbContext db) : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Consultation>> GetById(Guid id, CancellationToken ct)
     {
-        var c = await db.Consultations.AsNoTracking().SingleOrDefaultAsync(x => x.ConsultationId == id, ct);
+        var c = await WithEmbeds().SingleOrDefaultAsync(x => x.ConsultationId == id, ct);
         return c is null ? NotFound() : Ok(c);
     }
 
     [HttpGet("by-booking/{bookingId:guid}")]
     public async Task<ActionResult<Consultation>> GetByBooking(Guid bookingId, CancellationToken ct)
     {
-        var c = await db.Consultations.AsNoTracking().SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
+        var c = await WithEmbeds().SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
         return c is null ? NotFound() : Ok(c);
     }
 

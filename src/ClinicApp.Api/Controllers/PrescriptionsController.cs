@@ -19,11 +19,17 @@ public record FavoriteMedicineInput(Guid MedicineId, string GenericName, string 
 public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
 {
     // ── prescription_groups (+ line items) ──────────────────────────────────
+    // §6 embed: prescription_groups(bookings(appointment_date, doctors(staff_accounts(full_name)))).
+    private IQueryable<PrescriptionGroup> Groups() =>
+        db.PrescriptionGroups.AsNoTracking()
+            .Include(g => g.LineItems)
+            .Include(g => g.Booking).ThenInclude(b => b!.Doctor).ThenInclude(d => d!.StaffAccount);
+
     [HttpGet("prescription-groups")]
     public async Task<ActionResult<List<PrescriptionGroup>>> GetGroups(
         [FromQuery] Guid? patientId, [FromQuery] Guid? bookingId, [FromQuery] Guid? doctorId, CancellationToken ct)
     {
-        var q = db.PrescriptionGroups.AsNoTracking().Include(g => g.LineItems).AsQueryable();
+        var q = Groups();
         if (patientId is not null) q = q.Where(g => g.PatientId == patientId);
         if (bookingId is not null) q = q.Where(g => g.BookingId == bookingId);
         if (doctorId is not null) q = q.Where(g => g.DoctorId == doctorId);
@@ -33,7 +39,7 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     [HttpGet("prescription-groups/{id:guid}")]
     public async Task<ActionResult<PrescriptionGroup>> GetGroup(Guid id, CancellationToken ct)
     {
-        var g = await db.PrescriptionGroups.AsNoTracking().Include(x => x.LineItems).SingleOrDefaultAsync(x => x.GroupId == id, ct);
+        var g = await Groups().SingleOrDefaultAsync(x => x.GroupId == id, ct);
         return g is null ? NotFound() : Ok(g);
     }
 

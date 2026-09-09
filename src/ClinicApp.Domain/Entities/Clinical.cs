@@ -22,7 +22,11 @@ public class Consultation : IHasUpdatedAt
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
-    [JsonIgnore] public Booking Booking { get; set; } = null!;
+    // Nested embeds per contract §6 — populated only on reads that .Include() them.
+    [JsonPropertyName("bookings")] public Booking? Booking { get; set; }
+    [JsonPropertyName("doctors")] public Doctor? Doctor { get; set; }
+    [JsonPropertyName("consultation_diagnoses")] public ICollection<ConsultationDiagnosis> ConsultationDiagnoses { get; set; } = new List<ConsultationDiagnosis>();
+    [JsonPropertyName("follow_ups")] public FollowUp? FollowUp { get; set; }
 }
 
 public class ConsultationDiagnosis

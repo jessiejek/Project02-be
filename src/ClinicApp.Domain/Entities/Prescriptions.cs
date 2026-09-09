@@ -20,6 +20,9 @@ public class PrescriptionGroup : IHasUpdatedAt
 
     [JsonPropertyName("prescription_line_items")]
     public ICollection<PrescriptionLineItem> LineItems { get; set; } = new List<PrescriptionLineItem>();
+
+    /// <summary>Nested embed: prescription_groups(bookings(appointment_date, doctors(staff_accounts(full_name)))).</summary>
+    [JsonPropertyName("bookings")] public Booking? Booking { get; set; }
 }
 
 public class PrescriptionLineItem

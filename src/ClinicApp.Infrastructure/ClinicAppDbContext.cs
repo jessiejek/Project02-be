@@ -210,6 +210,9 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
             e.HasKey(c => c.ConsultationId);
             e.HasIndex(c => c.BookingId).IsUnique(); // upsert conflict key
             e.HasOne(c => c.Booking).WithMany().HasForeignKey(c => c.BookingId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(c => c.Doctor).WithMany().HasForeignKey(c => c.DoctorId).OnDelete(DeleteBehavior.NoAction);
+            e.HasMany(c => c.ConsultationDiagnoses).WithOne().HasForeignKey(d => d.ConsultationId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(c => c.FollowUp).WithOne().HasForeignKey<FollowUp>(f => f.ConsultationId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ConsultationDiagnosis>(e => e.HasKey(d => d.Id));
@@ -250,7 +253,11 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
             e.HasIndex(m => m.GenericName).IsUnique();
         });
 
-        modelBuilder.Entity<PrescriptionGroup>(e => e.HasKey(g => g.GroupId));
+        modelBuilder.Entity<PrescriptionGroup>(e =>
+        {
+            e.HasKey(g => g.GroupId);
+            e.HasOne(g => g.Booking).WithMany().HasForeignKey(g => g.BookingId).OnDelete(DeleteBehavior.NoAction);
+        });
 
         modelBuilder.Entity<PrescriptionLineItem>(e =>
         {
