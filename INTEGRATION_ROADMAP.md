@@ -337,10 +337,22 @@ Parity diff empty on all booking/payment reads.
       was blocking the anon-key `patients` lookup → every patient page was empty).
 - [x] All record-view reads migrated + in-browser verified.
 
-### Still on Supabase (writes)
-- [ ] `doctor/consultation/[bookingId]` save orchestration (consultation upsert +
-      diagnoses + vitals + follow-up + Rx + SOAP + audit in one flow)
-- [ ] SOAP phrase/template + Rx template/favorite **write** CRUD in the toolbars
+### Consultation save flow — done
+- [x] `persistConsultation()` → `upsertConsultationByBooking` +
+      `replaceDiagnoses` + `upsertFollowUpByConsultation` /
+      `deleteFollowUpByConsultation`; `handleSaveChanges` audit → `writeAuditLog`.
+- [x] The page's own reads (consultation by-booking, by-id, patient history,
+      diagnoses, follow-up, soap templates) go through `clinical.ts`.
+- [x] API-verified full flow: PUT consultation → PUT diagnoses (replace-all) →
+      PUT follow-up → POST audit-log, then enriched read reflects all of it.
+
+### Still on Supabase (writes) — small
+- [ ] SOAP phrase add/delete + SOAP-template & Rx-template & Rx-favorite CRUD in
+      the `SoapFieldToolbar` / `PrescriptionForm` toolbars (endpoints exist:
+      `POST/DELETE /api/soap-phrases`, `/api/soap-templates`,
+      `/api/prescription-templates`, `/api/doctor-favorite-medicines`)
+- [ ] `import-from-supabase.mjs` is upsert-only (no delete) — after a
+      replace-all-style test the .NET DB keeps stragglers; add a `--wipe` mode
 
 ---
 
