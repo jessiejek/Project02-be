@@ -1,0 +1,70 @@
+@host = http://localhost:5000
+
+### ─────────────────────────────────────────────────────────────────────────
+### AUTH  (camelCase wire — ported from the Angular backend, see Dtos.cs)
+### ─────────────────────────────────────────────────────────────────────────
+
+# @name register
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{ "email": "smoke2@test.local", "password": "Test1234!", "firstName": "Smoke", "lastName": "Test" }
+
+###
+# @name login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "email": "smoke2@test.local", "password": "Test1234!" }
+
+@access = {{login.response.body.accessToken}}
+@refresh = {{login.response.body.refreshToken}}
+
+###
+GET {{host}}/api/auth/me
+Authorization: Bearer {{access}}
+
+###
+POST {{host}}/api/auth/refresh-token
+Content-Type: application/json
+
+{ "refreshToken": "{{refresh}}" }
+
+###
+POST {{host}}/api/auth/logout
+Content-Type: application/json
+
+{ "refreshToken": "{{refresh}}" }
+
+### ─────────────────────────────────────────────────────────────────────────
+### DATA RESOURCES  (snake_case wire — DOTNET_FRONTEND_CONTRACT.md §4/§6)
+### Keys must be snake_case; enum values exact PascalCase strings.
+### ─────────────────────────────────────────────────────────────────────────
+
+### doctors — public (booking page). Expect nested staff_accounts(full_name,...)
+GET {{host}}/api/doctors
+
+###
+GET {{host}}/api/services
+
+###
+GET {{host}}/api/patients/me
+Authorization: Bearer {{access}}
+
+###
+GET {{host}}/api/patients
+Authorization: Bearer {{access}}
+
+###
+GET {{host}}/api/bookings/me
+Authorization: Bearer {{access}}
+
+###
+GET {{host}}/api/settings
+
+###
+GET {{host}}/api/vital-field-templates
+
+###
+GET {{host}}/api/reports/doctor-ratings
+Authorization: Bearer {{access}}

@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 using ClinicApp.Domain.Enums;
 
@@ -69,6 +70,8 @@ public class Doctor : IHasUpdatedAt
     public string? Bio { get; set; }
     public string? LicenseNumber { get; set; }
     public string? PtrNumber { get; set; }
+    // Naming convention yields "s2number" (no underscore before a digit); contract §4 wants "s2_number".
+    [Column("s2_number")]
     public string? S2Number { get; set; }
     public int SlotDurationMinutes { get; set; }
     public int SlotCapacity { get; set; }
