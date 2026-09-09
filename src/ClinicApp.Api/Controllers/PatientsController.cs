@@ -27,6 +27,47 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
         return Ok(await query.OrderBy(p => p.LastName).ToListAsync(ct));
     }
 
+    /// <summary>§16.2 — server-side paged + searched patient list. `sort` is one of
+    /// name | code | created (prefix "-" for descending; default "name").</summary>
+    [Authorize(Roles = "Admin,Staff,Doctor")]
+    [HttpGet("search")]
+    public async Task<ActionResult<PagedResult<Patient>>> Search(
+        [FromQuery] string? q,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        [FromQuery] string? sort = "name",
+        CancellationToken ct = default)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = db.Patients.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var s = q.Trim();
+            query = query.Where(p =>
+                p.FirstName.Contains(s) || p.LastName.Contains(s) ||
+                p.PatientCode.Contains(s) || p.Email.Contains(s) ||
+                (p.ContactNumber != null && p.ContactNumber.Contains(s)));
+        }
+
+        var desc = sort is not null && sort.StartsWith('-');
+        var key = (sort ?? "name").TrimStart('-');
+        query = (key, desc) switch
+        {
+            ("code", false) => query.OrderBy(p => p.PatientCode),
+            ("code", true) => query.OrderByDescending(p => p.PatientCode),
+            ("created", false) => query.OrderBy(p => p.CreatedAt),
+            ("created", true) => query.OrderByDescending(p => p.CreatedAt),
+            (_, true) => query.OrderByDescending(p => p.LastName).ThenByDescending(p => p.FirstName),
+            _ => query.OrderBy(p => p.LastName).ThenBy(p => p.FirstName),
+        };
+
+        var total = await query.CountAsync(ct);
+        var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return Ok(new PagedResult<Patient> { Items = items, TotalCount = total, Page = page, PageSize = pageSize });
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Patient>> GetById(Guid id, CancellationToken ct)
     {
