@@ -247,23 +247,33 @@ patient lists — all served by .NET, parity diff empty.
 
 ---
 
-## Phase 3 — Services & catalog
+## Phase 3 — Clinical lookup tables
 
-**Resources:** `services`, `medicines`, `vital_field_templates`, `icd10_codes`
+**Resources:** `medicines`, `vital_field_templates`, `icd10_codes`
+
+> **`services` / `doctor_services` / `booking_services` are VESTIGIAL** (owner
+> confirmed — same call as `doctor_schedules`). This clinic has no configurable
+> menu of priced add-ons. The real models for what those tables tried to be:
+> - visit cost → **flat fee schedule** on `clinic_settings` (§16.6, Phase 8.4):
+>   consultation ₱450, senior/PWD ₱400, follow-up ₱350, med-cert +₱50
+> - lab requests → **`lab_test_catalog`**, fixed/seeded not admin-CRUD (§16.8, 8.5)
+> - med-cert → **`medical_certificates`** (§16.8, 8.5)
+> `doctor_services` was already migrated read-only for parity in Phase 2 — leave it;
+> `admin/services` page stays on Supabase and is replaced by a fee-schedule screen
+> in 8.4. Do not build `services` CRUD against .NET.
 
 ### Backend
-- [ ] `GET /api/services` (+ `is_active` filter), `GET /{id}`, `POST`, `PUT /{id}`.
-- [ ] `GET /api/medicines?q=` autocomplete.
-- [ ] `GET /api/vital-field-templates` (defaults + customs).
-- [ ] `GET /api/icd10-codes?q=` — **new**, fills contract §15 gap (UI doesn't query
-      it today but Phase 5 diagnosis picker will).
+- [ ] `GET /api/medicines?q=` autocomplete; `POST /api/medicines` (doctor adds one).
+- [ ] `GET /api/vital-field-templates` (7 defaults + any customs).
+- [ ] `GET /api/icd10-codes?q=` — **new**, fills contract §15 gap (Phase 5 diagnosis
+      picker will use it).
 
 ### Frontend
-`admin/services`, `components/doctor/PrescriptionForm.tsx` (medicine search),
-vitals template load in `components/doctor/VitalsEditor.tsx`.
+`components/doctor/PrescriptionForm.tsx` (medicine search),
+`components/doctor/VitalsEditor.tsx` (template load). No admin catalog screen.
 
 ### Verify
-Services CRUD on .NET; medicine autocomplete; templates load in the vitals editor.
+Medicine autocomplete + add; vitals templates load in the editor from .NET.
 
 ---
 
