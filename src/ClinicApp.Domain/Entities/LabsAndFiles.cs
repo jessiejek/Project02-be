@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ClinicApp.Domain.Enums;
 
 namespace ClinicApp.Domain.Entities;
@@ -60,6 +61,8 @@ public class PatientDocument
     public string FileUrl { get; set; } = "";
     public Guid? UploadedByUserId { get; set; }
     public DateTimeOffset UploadedAt { get; set; }
+
+    [JsonPropertyName("bookings")] public Booking? Booking { get; set; }
 }
 
 public class PatientLabResult
@@ -77,4 +80,6 @@ public class PatientLabResult
     public string Status { get; set; } = "Completed";
     public string FileUrl { get; set; } = "";
     public DateTimeOffset UploadedAt { get; set; }
+
+    [JsonPropertyName("bookings")] public Booking? Booking { get; set; }
 }

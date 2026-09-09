@@ -57,6 +57,10 @@ public sealed class DevController(ClinicAppDbContext db, IWebHostEnvironment env
                 "doctor_favorite_medicines" => await UpsertFavMedicines(req.Rows, ct),
                 "soap_templates"        => await UpsertSoapTemplates(req.Rows, ct),
                 "soap_phrases"          => await UpsertSoapPhrases(req.Rows, ct),
+                "reviews"               => await UpsertReviews(req.Rows, ct),
+                "patient_vaccinations"  => await UpsertVaccinations(req.Rows, ct),
+                "patient_documents"     => await UpsertDocuments(req.Rows, ct),
+                "patient_lab_results"   => await UpsertLabResults(req.Rows, ct),
                 _ => -1,
             };
         }
@@ -533,6 +537,92 @@ public sealed class DevController(ClinicAppDbContext db, IWebHostEnvironment env
             e.Body = S(r, "body");
             e.CreatedAt = TS(r, "created_at");
             e.UpdatedAt = TS(r, "updated_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertReviews(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "review_id");
+            var e = await db.Reviews.FindAsync([id], ct) ?? Track(new Review { ReviewId = id });
+            e.BookingId = G(r, "booking_id");
+            e.DoctorId = G(r, "doctor_id");
+            e.PatientId = G(r, "patient_id");
+            e.Rating = (short)IN(r, "rating", 5);
+            e.Comment = SN(r, "comment");
+            e.CreatedAt = TS(r, "created_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertVaccinations(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "id");
+            var e = await db.PatientVaccinations.FindAsync([id], ct) ?? Track(new PatientVaccination { Id = id });
+            e.PatientId = G(r, "patient_id");
+            e.ConsultationId = GN(r, "consultation_id");
+            e.VaccineName = S(r, "vaccine_name");
+            e.Manufacturer = SN(r, "manufacturer");
+            e.DoseNumber = r.TryGetProperty("dose_number", out var dn) && dn.ValueKind == JsonValueKind.Number ? (short)dn.GetInt32() : null;
+            e.Route = SN(r, "route");
+            e.Site = SN(r, "site");
+            e.LotNumber = SN(r, "lot_number");
+            e.ExpiryDate = DN(r, "expiry_date");
+            e.AdministeredDate = DN(r, "administered_date");
+            e.AdministeredBy = GN(r, "administered_by");
+            e.NextDoseDate = DN(r, "next_dose_date");
+            e.Status = E(r, "status", VaccinationStatus.Scheduled);
+            e.Source = E(r, "source", VaccinationSource.AdministeredInClinic);
+            e.Notes = SN(r, "notes");
+            e.ReactionNotes = SN(r, "reaction_notes");
+            e.CreatedAt = TS(r, "created_at");
+            e.UpdatedAt = TS(r, "updated_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertDocuments(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "id");
+            var e = await db.PatientDocuments.FindAsync([id], ct) ?? Track(new PatientDocument { Id = id });
+            e.PatientId = G(r, "patient_id");
+            e.BookingId = G(r, "booking_id");
+            e.ConsultationId = GN(r, "consultation_id");
+            e.FileName = S(r, "file_name");
+            e.FileSize = r.TryGetProperty("file_size", out var fs) && fs.ValueKind == JsonValueKind.Number ? fs.GetInt64() : null;
+            e.FileContentType = SN(r, "file_content_type");
+            e.Title = SN(r, "title");
+            e.Description = SN(r, "description");
+            e.FileUrl = S(r, "file_url");
+            e.UploadedByUserId = GN(r, "uploaded_by_user_id");
+            e.UploadedAt = TS(r, "uploaded_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertLabResults(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "id");
+            var e = await db.PatientLabResults.FindAsync([id], ct) ?? Track(new PatientLabResult { Id = id });
+            e.PatientId = G(r, "patient_id");
+            e.BookingId = G(r, "booking_id");
+            e.ConsultationId = GN(r, "consultation_id");
+            e.LabOrderId = GN(r, "lab_order_id");
+            e.FileName = S(r, "file_name");
+            e.FileContentType = SN(r, "file_content_type");
+            e.ResultTitle = SN(r, "result_title");
+            e.ResultText = SN(r, "result_text");
+            e.Status = S(r, "status") is { Length: > 0 } st ? st : "Completed";
+            e.FileUrl = S(r, "file_url");
+            e.UploadedAt = TS(r, "uploaded_at");
         }
         return await db.SaveChangesAsync(ct);
     }

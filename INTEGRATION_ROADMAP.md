@@ -420,7 +420,21 @@ the consultation, Rx, and follow-up in medical records.
 
 ---
 
-## Phase 6 — Patient files, vaccinations, reviews
+## Phase 6 — Patient files, vaccinations, reviews  ✅ DONE
+
+- [x] Backend: `PatientFilesController` (documents + lab-results multipart upload
+      → `LocalFileStorageService` → row insert, with `bookings(doctors(...))`
+      embed), `VaccinationsController` (list + create), `ReviewsController`
+      (list + create, one-per-booking guard). Migration `PatientFileBookingNav`.
+- [x] `src/lib/data/patientFiles.ts` — query/upload/create for all four;
+      flipped in `mode.ts`. `fileUrl()` maps the `/uploads/..` path to absolute.
+- [x] Migrated: `patient/documents` + `patient/lab-results` (read + upload),
+      `patient/vaccinations`, `patient/reviews/[bookingId]` (check + submit),
+      `patient/doctors/[id]` (reviews read). `src/lib/patientUploads.ts` now unused.
+- [x] API-verified: multipart doc upload → row + file, `GET /uploads/..` serves
+      the file (200); review dedup returns 409. `next build` + `tsc` green.
+
+### (original notes)
 
 **Resources:** `patient_documents`, `patient_lab_results`, `patient_vaccinations`,
 `reviews`, file storage

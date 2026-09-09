@@ -259,6 +259,11 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
             e.HasOne(g => g.Booking).WithMany().HasForeignKey(g => g.BookingId).OnDelete(DeleteBehavior.NoAction);
         });
 
+        modelBuilder.Entity<PatientDocument>(e =>
+            e.HasOne(d => d.Booking).WithMany().HasForeignKey(d => d.BookingId).OnDelete(DeleteBehavior.NoAction));
+        modelBuilder.Entity<PatientLabResult>(e =>
+            e.HasOne(r => r.Booking).WithMany().HasForeignKey(r => r.BookingId).OnDelete(DeleteBehavior.NoAction));
+
         modelBuilder.Entity<PrescriptionLineItem>(e =>
         {
             e.HasKey(i => i.Id);
