@@ -474,18 +474,37 @@ Upload a PDF on `patient/documents` → row created, file downloads from
       call sites (booking, patient dashboard, patient/doctors, patient/doctors/[id]).
 - [x] Parity: `announcements`, `audit_logs` clean. All Phase 7 endpoints API-verified.
 
-### Remaining — the Supabase teardown
-- [ ] `admin/dashboard` still does raw `.from("bookings").select(count)` for 3
-      counts — route through `queryBookings` or a small counts endpoint.
-- [ ] `doctor/consultation` amendment-history reads `.from("audit_logs")` — swap
-      to `queryAuditLogs({ entityType:"Consultation", entityId })`.
-- [ ] `patient/dashboard` `auth.resend`, `booking/page.tsx` `auth.signUp/signIn`,
-      `{patient,staff,doctor}/profile` password change — the deferred Phase 1b auth bits.
-- [ ] Then: `grep -r "\.from(\|supabase" src` → migrate stragglers; delete
-      `src/lib/supabase/{client,server,admin}.ts` + `src/lib/patientUploads.ts`;
-      remove `@supabase/*` from package.json; drop `NEXT_PUBLIC_SUPABASE_*` and
-      the `API_MODE`/`AUTH_MODE` flags (make dotnet unconditional);
-      regenerate or retire `src/data/supabase-types.ts`.
+### The Supabase teardown — partial done, full deletion still BLOCKED
+
+**Done this pass:**
+- [x] Defaults flipped: `AUTH_MODE` and `mode.ts` `GLOBAL_DEFAULT` now resolve to
+      `dotnet` unless `NEXT_PUBLIC_{AUTH,API}_MODE=supabase` is set explicitly.
+      `.env.local` / `env.example` set both to `dotnet`. `next build` green.
+- [x] `doctor/consultation` amendment history → `queryAuditLogs(supabase,
+      { entityType:"Consultation", entityId })`.
+- [x] `PrescriptionForm` group save → `upsertRxGroupByBooking(...)` (dropped the
+      manual `prescription_groups` + `prescription_line_items` writes).
+
+**Still blocking `rm src/lib/supabase/*` + `npm rm @supabase/*`** — ~55 direct
+`.from(...)` / `supabase.auth.*` call sites remain, all in areas parked for Phase 8
+or deferred from Phase 1b:
+- [ ] **Booking creation / walk-in queue** — `booking/page.tsx`, `admin/walk-in`,
+      `staff/walk-in`, `admin/calendar` (date-range `bookings` reads),
+      `doctor/schedule`. All slot/queue-shaped → rebuilt in Phase 8, not migrated.
+- [ ] **Parked schedule resources** — `doctor_schedules`, `doctor_day_statuses`,
+      `doctor_blocked_dates`. Vestigial; replaced by the FCFS queue in Phase 8.
+- [ ] **Phase 1b auth deferrals** — `patient/dashboard` `auth.resend`,
+      `booking/page.tsx` `auth.signUp/signInWithPassword`,
+      `{patient,staff,doctor}/profile` password change. Need `/api/auth`
+      equivalents (resend-verification, self-service register, change-password).
+- [ ] **Compat crutches** — `SessionProvider`, `proxy.ts`, `login/page.tsx`
+      supabase-mode branches; the parallel best-effort Supabase login. Remove with
+      the flags once the above land.
+- [ ] **Then** delete `src/lib/supabase/{client,server,admin}.ts` +
+      `src/lib/patientUploads.ts`; `npm rm @supabase/ssr` (keep
+      `@supabase/supabase-js` as a devDep for the parity harness); drop
+      `NEXT_PUBLIC_SUPABASE_*`; remove the `API_MODE`/`AUTH_MODE` flags and every
+      Supabase branch in `src/lib/data/`; retire `src/data/supabase-types.ts`.
 
 ### (original notes)
 
