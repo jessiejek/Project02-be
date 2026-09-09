@@ -61,6 +61,8 @@ public sealed class DevController(ClinicAppDbContext db, IWebHostEnvironment env
                 "patient_vaccinations"  => await UpsertVaccinations(req.Rows, ct),
                 "patient_documents"     => await UpsertDocuments(req.Rows, ct),
                 "patient_lab_results"   => await UpsertLabResults(req.Rows, ct),
+                "announcements"         => await UpsertAnnouncements(req.Rows, ct),
+                "audit_logs"            => await UpsertAuditLogs(req.Rows, ct),
                 _ => -1,
             };
         }
@@ -623,6 +625,38 @@ public sealed class DevController(ClinicAppDbContext db, IWebHostEnvironment env
             e.Status = S(r, "status") is { Length: > 0 } st ? st : "Completed";
             e.FileUrl = S(r, "file_url");
             e.UploadedAt = TS(r, "uploaded_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertAnnouncements(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "id");
+            var e = await db.Announcements.FindAsync([id], ct) ?? Track(new Announcement { Id = id });
+            e.Title = S(r, "title");
+            e.Body = S(r, "body");
+            e.IsActive = BN(r, "is_active", true);
+            e.PostedByUserId = GN(r, "posted_by_user_id");
+            e.CreatedAt = TS(r, "created_at");
+            e.UpdatedAt = TS(r, "updated_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertAuditLogs(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "id");
+            var e = await db.AuditLogs.FindAsync([id], ct) ?? Track(new AuditLog { Id = id });
+            e.EntityType = E(r, "entity_type", AuditEntityType.Consultation);
+            e.EntityId = G(r, "entity_id");
+            e.Action = S(r, "action");
+            e.PerformedByUserId = GN(r, "performed_by_user_id");
+            e.Details = SN(r, "details");
+            e.PerformedAt = TS(r, "performed_at");
         }
         return await db.SaveChangesAsync(ct);
     }

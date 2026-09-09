@@ -459,7 +459,35 @@ Upload a PDF on `patient/documents` → row created, file downloads from
 
 ---
 
-## Phase 7 — Admin settings, announcements, audit log, reports — then remove Supabase
+## Phase 7 — Admin settings, announcements, audit log, reports — then remove Supabase  ▲ IN PROGRESS
+
+### Migrated — done
+- [x] Backend gaps filled: `PUT /api/admin/operating-hours` (bulk),
+      `PUT /api/admin/payment-methods` (set list), `GET /api/audit-logs`
+      `?entityType=&entityId=` + role opened to Doctor/Staff.
+- [x] `src/lib/data/admin.ts` — settings (get/update), operating-hours
+      (get/set), payment-methods (get/set), announcements (CRUD), audit-logs
+      (query), reports (`queryReport` for the 4 views + typed `queryDoctorRatings`).
+- [x] Migrated: `admin/settings`, `admin/announcements`, `staff/announcements`,
+      `admin/audit-logs`, `admin/reports`, `admin/dashboard` (view reads),
+      `patient/privacy-consent` (consent_version), and the 4 `v_doctor_ratings`
+      call sites (booking, patient dashboard, patient/doctors, patient/doctors/[id]).
+- [x] Parity: `announcements`, `audit_logs` clean. All Phase 7 endpoints API-verified.
+
+### Remaining — the Supabase teardown
+- [ ] `admin/dashboard` still does raw `.from("bookings").select(count)` for 3
+      counts — route through `queryBookings` or a small counts endpoint.
+- [ ] `doctor/consultation` amendment-history reads `.from("audit_logs")` — swap
+      to `queryAuditLogs({ entityType:"Consultation", entityId })`.
+- [ ] `patient/dashboard` `auth.resend`, `booking/page.tsx` `auth.signUp/signIn`,
+      `{patient,staff,doctor}/profile` password change — the deferred Phase 1b auth bits.
+- [ ] Then: `grep -r "\.from(\|supabase" src` → migrate stragglers; delete
+      `src/lib/supabase/{client,server,admin}.ts` + `src/lib/patientUploads.ts`;
+      remove `@supabase/*` from package.json; drop `NEXT_PUBLIC_SUPABASE_*` and
+      the `API_MODE`/`AUTH_MODE` flags (make dotnet unconditional);
+      regenerate or retire `src/data/supabase-types.ts`.
+
+### (original notes)
 
 **Resources:** `clinic_settings`, `clinic_operating_hours`,
 `clinic_accepted_payment_methods`, `announcements`, `audit_logs` (read),

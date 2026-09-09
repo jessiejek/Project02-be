@@ -14,10 +14,17 @@ public record CreateAuditLogRequest(AuditEntityType EntityType, Guid EntityId, s
 [Route("api/audit-logs")]
 public class AuditLogsController(ClinicAppDbContext db) : ControllerBase
 {
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Doctor,Staff")]
     [HttpGet]
-    public async Task<ActionResult<List<AuditLog>>> GetAll([FromQuery] int take = 100, CancellationToken ct = default) =>
-        Ok(await db.AuditLogs.AsNoTracking().OrderByDescending(a => a.PerformedAt).Take(take).ToListAsync(ct));
+    public async Task<ActionResult<List<AuditLog>>> GetAll(
+        [FromQuery] AuditEntityType? entityType, [FromQuery] Guid? entityId,
+        [FromQuery] int take = 100, CancellationToken ct = default)
+    {
+        var q = db.AuditLogs.AsNoTracking().AsQueryable();
+        if (entityType is not null) q = q.Where(a => a.EntityType == entityType);
+        if (entityId is not null) q = q.Where(a => a.EntityId == entityId);
+        return Ok(await q.OrderByDescending(a => a.PerformedAt).Take(take).ToListAsync(ct));
+    }
 
     /// <summary>Written on consultation amend (contract §10, entity_type = Consultation).</summary>
     [Authorize(Roles = "Doctor,Admin,Staff")]
