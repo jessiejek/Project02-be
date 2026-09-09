@@ -108,19 +108,12 @@ public class ConsultationsController(ClinicAppDbContext db) : ControllerBase
             var settings = await db.ClinicSettings.SingleOrDefaultAsync(s => s.Id == 1, ct);
             if (settings is not null)
             {
-                var subtotal = booking.DiscountCategory is not null
-                    ? settings.FeeSeniorPwd
-                    : booking.VisitType == VisitType.FollowUp
-                        ? settings.FeeFollowUp
-                        : settings.FeeConsultation;
-                var total = subtotal + (booking.MedCertRequested ? settings.FeeMedCert : 0m);
-
-                booking.ConsultationFeeSnapshot = subtotal;
-                booking.DiscountAmount = booking.DiscountCategory is not null
-                    ? Math.Max(0m, settings.FeeConsultation - subtotal)
-                    : 0m;
-                booking.TotalFee = total;
-                booking.AmountDue = total;
+                var fee = ClinicApp.Domain.ClinicFees.Compute(
+                    settings, booking.VisitType, booking.MedCertRequested, booking.DiscountCategory);
+                booking.ConsultationFeeSnapshot = fee.Subtotal;
+                booking.DiscountAmount = fee.DiscountAmount;
+                booking.TotalFee = fee.Total;
+                booking.AmountDue = fee.Total;
                 booking.UpdatedAt = now;
             }
         }
