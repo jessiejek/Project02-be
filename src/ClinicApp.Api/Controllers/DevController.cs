@@ -43,6 +43,9 @@ public sealed class DevController(ClinicAppDbContext db, IWebHostEnvironment env
                 "doctor_schedules"      => await UpsertDoctorSchedules(req.Rows, ct),
                 "doctor_blocked_dates"  => await UpsertBlockedDates(req.Rows, ct),
                 "doctor_day_statuses"   => await UpsertDayStatuses(req.Rows, ct),
+                "bookings"              => await UpsertBookings(req.Rows, ct),
+                "booking_services"      => await UpsertBookingServices(req.Rows, ct),
+                "payments"              => await UpsertPayments(req.Rows, ct),
                 _ => -1,
             };
         }
@@ -237,6 +240,77 @@ public sealed class DevController(ClinicAppDbContext db, IWebHostEnvironment env
             e.BlockedDate = D(r, "blocked_date");
             e.Reason = SN(r, "reason");
             e.CreatedAt = TS(r, "created_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertBookings(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "booking_id");
+            var e = await db.Bookings.FindAsync([id], ct) ?? Track(new Booking { BookingId = id });
+            e.PatientId = G(r, "patient_id");
+            e.DoctorId = G(r, "doctor_id");
+            e.AppointmentDate = D(r, "appointment_date");
+            e.SlotStartTime = T(r, "slot_start_time");
+            e.SlotEndTime = T(r, "slot_end_time");
+            e.Status = E(r, "status", BookingStatus.Pending);
+            e.PaymentMode = E(r, "payment_mode", PaymentMode.PayAtClinic);
+            e.QueueNumber = SN(r, "queue_number");
+            e.ConsultationFeeSnapshot = DEC(r, "consultation_fee_snapshot", 0);
+            e.TotalFee = DEC(r, "total_fee", 0);
+            e.AmountDue = DEC(r, "amount_due", 0);
+            e.IsWalkIn = BN(r, "is_walk_in", false);
+            e.ProofType = r.TryGetProperty("proof_type", out var pt) && pt.ValueKind == JsonValueKind.String && Enum.TryParse<ProofType>(pt.GetString(), out var ptv) ? ptv : null;
+            e.ProofValue = SN(r, "proof_value");
+            e.ProofSubmittedAt = r.TryGetProperty("proof_submitted_at", out var ps) && ps.ValueKind == JsonValueKind.String ? DateTimeOffset.Parse(ps.GetString()!) : null;
+            e.CancelledByUserId = GN(r, "cancelled_by_user_id");
+            e.CancellationReason = SN(r, "cancellation_reason");
+            e.Notes = SN(r, "notes");
+            e.CreatedAt = TS(r, "created_at");
+            e.UpdatedAt = TS(r, "updated_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertBookingServices(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var b = G(r, "booking_id");
+            var s = G(r, "service_id");
+            var e = await db.BookingServices.FindAsync([b, s], ct) ?? Track(new BookingService { BookingId = b, ServiceId = s });
+            e.PriceAtBooking = DEC(r, "price_at_booking", 0);
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertPayments(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "payment_id");
+            var e = await db.Payments.FindAsync([id], ct) ?? Track(new Payment { PaymentId = id });
+            e.BookingId = G(r, "booking_id");
+            e.Amount = DEC(r, "amount", 0);
+            e.Status = E(r, "status", PaymentStatus.Unpaid);
+            e.PaymentMethod = r.TryGetProperty("payment_method", out var pm) && pm.ValueKind == JsonValueKind.String && Enum.TryParse<PaymentMethod>(pm.GetString(), out var pmv) ? pmv : null;
+            e.ReferenceNumber = SN(r, "reference_number");
+            e.OrNumber = SN(r, "or_number");
+            e.AmountReceived = r.TryGetProperty("amount_received", out var ar) && ar.ValueKind == JsonValueKind.Number ? ar.GetDecimal() : null;
+            e.ConfirmNotes = SN(r, "confirm_notes");
+            e.ConfirmedByUserId = GN(r, "confirmed_by_user_id");
+            e.ConfirmedAt = r.TryGetProperty("confirmed_at", out var ca) && ca.ValueKind == JsonValueKind.String ? DateTimeOffset.Parse(ca.GetString()!) : null;
+            e.WaivedByUserId = GN(r, "waived_by_user_id");
+            e.WaivedReason = SN(r, "waived_reason");
+            e.WaivedAt = r.TryGetProperty("waived_at", out var wa) && wa.ValueKind == JsonValueKind.String ? DateTimeOffset.Parse(wa.GetString()!) : null;
+            e.RefundedByUserId = GN(r, "refunded_by_user_id");
+            e.RefundAmount = r.TryGetProperty("refund_amount", out var ra) && ra.ValueKind == JsonValueKind.Number ? ra.GetDecimal() : null;
+            e.RefundReason = SN(r, "refund_reason");
+            e.RefundedAt = r.TryGetProperty("refunded_at", out var rfa) && rfa.ValueKind == JsonValueKind.String ? DateTimeOffset.Parse(rfa.GetString()!) : null;
+            e.CreatedAt = TS(r, "created_at");
+            e.UpdatedAt = TS(r, "updated_at");
         }
         return await db.SaveChangesAsync(ct);
     }
