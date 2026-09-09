@@ -79,7 +79,8 @@ public class Doctor : IHasUpdatedAt
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
-    /// <summary>Nested embed key per contract §6: doctors(staff_accounts(...)).</summary>
+    /// <summary>Nested embed per contract §6: doctors(staff_accounts(...)).
+    /// Nullable — only populated on reads that .Include() it; PUT payloads omit it.</summary>
     [JsonPropertyName("staff_accounts")]
-    public StaffAccount StaffAccount { get; set; } = null!;
+    public StaffAccount? StaffAccount { get; set; }
 }

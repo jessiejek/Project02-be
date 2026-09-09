@@ -196,14 +196,29 @@ Log in as each role → correct `/{role}/dashboard`; wrong-role URL → redirect
 - [x] Migrated: `admin/patients`, `staff/patients`, `admin/staff`,
       `admin/walk-in`, `staff/walk-in` (patient picker). In-browser verified.
 
+### Writes — done (doctor / staff / patient scalar edits)
+- [x] `updateDoctor` / `updateStaffAccount` / `updatePatient` /
+      `updatePatientConsent` in the data modules — fetch-merge-PUT in dotnet
+      mode (the .NET PUTs replace the whole row).
+- [x] Backend: `Doctor.StaffAccount` made nullable — the PUT required the nested
+      embed object. No schema change.
+- [x] Migrated: `admin/doctors/[id]/edit` (+ read), `DoctorForm`, `doctor/profile`
+      (+ read), `staff/profile`, `admin/staff` status toggle, `patient/profile`
+      (+ read), `patient/privacy-consent`.
+- [x] Verified in-browser: edit doctor in admin → `PUT /api/doctors/{id}` →
+      persisted in MSSQL (`specialization` + `bio`). All three PUTs return 200.
+- Note: after a write the Supabase copy is stale until `import-from-supabase.mjs`
+      re-runs — expected; irrelevant once Supabase is retired (Phase 7).
+
 ### Remaining
-- [ ] `doctor_schedules` / `doctor_services` / `doctor_blocked_dates` /
-      `doctor_day_statuses` data modules + their read sites (`doctor/schedule`,
-      `patient/doctors/[id]`, booking wizard, walk-in day-status, …)
-- [ ] Per-patient detail pages (`admin/patients/[id]`, `staff/patients/[id]`,
-      `doctor/patients/[id]` — the last derives from bookings, → Phase 4)
-- [ ] Writes: doctor edit (`admin/doctors/[id]/edit`, `DoctorForm`,
-      `doctor/profile`, `doctor/schedule`), patient edit/create, staff status/PUT
+- [ ] `doctor_services` / `doctor_day_statuses` data modules + read sites
+      (booking wizard, walk-in day-status, `admin/doctors/[id]/edit` services list)
+- [ ] **`doctor_schedules` / `doctor_blocked_dates` — parity-only, do not deepen.**
+      No slots (walk-in FCFS queue); vestigial, replaced in **8.3**.
+- [ ] Per-patient detail pages (`admin/patients/[id]`, `staff/patients/[id]`;
+      `doctor/patients/[id]` derives from bookings → Phase 4)
+- [ ] Patient create (`admin/patients` Add Patient, walk-in new-patient) — needs a
+      `POST /api/patients` endpoint (only PUT exists)
 
 ### Backend
 - [ ] `GET /api/patients/{id}`, `/me`, list (search by `patient_code`/name/contact,
@@ -387,14 +402,39 @@ Full app, every role, no Supabase env vars set. `next build` green with
 Each sub-phase = schema migration → endpoint → FE screen → verify. Independent;
 order by clinic priority.
 
+### ✅ Confirmed clinic facts (owner, this migration) — build 8.3/8.4/8.6 to these
+
+- **No appointment slots. Walk-in only, FCFS, manual queueing.** The whole slot
+  model in the schema (`doctor_schedules`, `bookings.slot_*`, `doctors.slot_*`)
+  is vestigial and gets replaced by the queue, not extended.
+- **One doctor.** Hours are the clinic's, single session per day (NOT the
+  letterhead's split-shift — owner explicitly rejected that):
+  | Day | Hours |
+  |-----|-------|
+  | Mon–Fri | 08:00 – 17:00 |
+  | Saturday | 10:00 – 17:00 |
+  | Sunday | closed |
+  → `clinic_operating_hours` seed fix (current Sat 08:00–12:00 is wrong).
+- **Fee schedule (§16.6), clinic-wide flat, doctor-set at consultation:**
+  | Item | ₱ |
+  |------|---|
+  | Standard consultation | 450 |
+  | Senior citizen / PWD | 400 |
+  | Follow-up consultation | 350 |
+  | Medical Certificate (add-on) | +50 |
+  Senior/PWD discount model still parked (§16.6 working assumption: −20% of total).
+- **Identity (§16.8):** Grace Medical Clinic · Allyn Grace T. España-Gavino, MD
+  (Family & Community Medicine / Adult & Pedia) · 3ML Quezon National Highway,
+  Buaya, Lapu-Lapu City · 09285612976 · License No. 0125232.
+
 | # | Amendment (contract ref) | Backend | Frontend |
 |---|---|---|---|
 | 8.1 | Staff vitals at intake — `recorded_by_user_id` (§16.1) | migration adds the column (already stubbed in `WireModels.cs`); vitals write authorizes any `is_staff_like` | vitals step in `staff/walk-in` / `staff/bookings/[id]`, reuse `VitalsEditor` |
 | 8.2 | Server-side pagination + search (§16.2) | keyset cursor + `q`/`sort` on every list endpoint; response envelope `{ rows, next_cursor, total }` | list screens consume the envelope; move `doctor/patients` card grid → `DataTable` |
-| 8.3 | Walk-in intake + FCFS queue + ticket print (§16.3) | queue model, `POST /api/queue/*`, ticket payload | `staff/walk-in` flow, queue board, printable ticket |
-| 8.4 | Fee schedule + booking tagging (§16.6) | `fee_schedule` table, `bookings.visit_type` (follow-up / senior-PWD / med-cert), fee resolution | booking + walk-in fee display, tag selector |
-| 8.5 | Printable clinical docs (§16.7–16.8) | `medical_certificates` table, fix `prescription_line_items` gaps, `lab_test_catalog`; print-letterhead endpoint | Rx pad, med-cert, lab-request print views matching the paper forms |
-| 8.6 | Real clinic identity + split-shift hours (§16.8) | correct `clinic_settings` seed; schema change for split-shift operating hours | settings screen, availability calc |
+| 8.3 | **Manual walk-in FCFS queue** (§16.3) — replaces slots entirely | queue model (per-day sequence number), `POST /api/queue/*`, ticket payload; deprecate `bookings.slot_*` / `doctors.slot_*` / `doctor_schedules` | `staff/walk-in` reserve+queue flow, queue board, printable ticket; remove slot pickers from the booking wizard |
+| 8.4 | Fee schedule + booking tagging (§16.6) | fee columns on `clinic_settings` (`fee_consultation` 450, `fee_follow_up` 350, `fee_senior_pwd` 400, `fee_med_cert` 50, `discount_pct` 0.20); `bookings.visit_type` enum `('New','FollowUp')` (doctor-set); `patients.senior_id_number`/`pwd_id_number`; `bookings.discount_category`/`discount_amount` snapshot; server-side fee recompute on consultation-complete | fee shown as provisional at reservation; doctor sets `visit_type` + issues med-cert at consultation; secretary collects against the final amount |
+| 8.5 | Printable clinical docs (§16.7–16.8) | `medical_certificates` (§16.8 columns), `prescription_line_items` new cols (`timing`, `meal_relation`, `duration_kind`, `duration_value`, `indication`), `lab_test_catalog` + `lab_orders.lab_test_id`; print-letterhead endpoint | Rx pad, med-cert, lab-request print views matching the real paper forms |
+| 8.6 | Real clinic identity + **single-session** hours (§16.8, owner-corrected) | seed `clinic_settings` (name "Grace Medical Clinic", address, contact 09285612976) + `doctors` (name "Allyn Grace T. España-Gavino, MD", license `0125232`); correct `clinic_operating_hours` to Mon–Fri 08:00–17:00 / Sat 10:00–17:00 / Sun closed. **No split-shift schema change needed** — owner rejected the letterhead's evening session | settings screen, app title string |
 | 8.7 | Doctor earnings / visits dashboard (§16.9) | `v_doctor_earnings` view + `GET /api/reports/doctor-earnings` (doctor-only) | `doctor/dashboard` earnings panel |
 | 8.9 | Broken-today fixes + infra + compliance (§17) | §17.1 bug fixes; §17.2 rate-limit, structured logging, request IDs, DB backup; §17.3 data-retention / consent audit | as each surfaces |
 
