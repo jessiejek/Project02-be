@@ -327,7 +327,24 @@ Parity diff empty on all booking/payment reads.
 
 ---
 
-## Phase 5 — Clinical records  ▲ IN PROGRESS
+## Phase 5 — Clinical records  ✅ READS DONE
+
+- [x] Enriched endpoints: `GET /api/consultations` + `/api/prescription-groups`
+      now `.Include()` the §6 nested embeds (bookings, doctors.staff_accounts,
+      consultation_diagnoses, follow_ups). Migration `ClinicalNavigations`.
+- [x] **Session fix**: `getServerSession()` in dotnet mode resolves
+      patientId/staffId from `/api/{patients,staff-accounts}/me` (Supabase RLS
+      was blocking the anon-key `patients` lookup → every patient page was empty).
+- [x] All record-view reads migrated + in-browser verified.
+
+### Still on Supabase (writes)
+- [ ] `doctor/consultation/[bookingId]` save orchestration (consultation upsert +
+      diagnoses + vitals + follow-up + Rx + SOAP + audit in one flow)
+- [ ] SOAP phrase/template + Rx template/favorite **write** CRUD in the toolbars
+
+---
+
+### (original notes)
 
 ### Backend — done
 - [x] 5 new controllers: `ConsultationsController` (+diagnoses replace-all),
