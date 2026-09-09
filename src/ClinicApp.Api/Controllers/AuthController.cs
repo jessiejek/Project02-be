@@ -5,6 +5,7 @@ using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
@@ -17,6 +18,7 @@ namespace ClinicApp.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/auth")]
+[EnableRateLimiting("auth")]
 public class AuthController(
     ClinicAppDbContext db,
     ITokenService tokenService,

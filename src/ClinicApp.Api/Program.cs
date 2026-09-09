@@ -1,10 +1,13 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+using ClinicApp.Api.Middleware;
 using ClinicApp.Auth;
 using ClinicApp.Infrastructure;
 using ClinicApp.Infrastructure.Files;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -83,6 +86,34 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+// ── Rate limiting (§17.2) — per-client-IP. A generous global fixed window plus
+// a strict "auth" policy for the credential endpoints (brute-force guard).
+var rl = builder.Configuration.GetSection("RateLimiting");
+var globalPerMinute = rl.GetValue<int?>("GlobalPermitPerMinute") ?? 300;
+var authPerMinute = rl.GetValue<int?>("AuthPermitPerMinute") ?? 10;
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    static string ClientKey(HttpContext ctx) =>
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(ClientKey(ctx), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = globalPerMinute,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    options.AddPolicy("auth", ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(ClientKey(ctx), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = authPerMinute,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+});
+
 // ── File storage (plan §7) ─────────────────────────────────────────────────
 builder.Services.AddSingleton(sp =>
 {
@@ -142,6 +173,9 @@ if (app.Environment.IsDevelopment())
     await ClinicApp.Infrastructure.DevDataSeeder.SeedAsync(db, hasher, logger);
 }
 
+// §17.2 — correlation id + structured request logging, before anything that logs.
+app.UseMiddleware<RequestContextMiddleware>();
+
 app.UseHttpsRedirection();
 
 // Serve uploaded files (patient documents / lab results) from App_Data/uploads.
@@ -154,6 +188,7 @@ app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 });
 
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
