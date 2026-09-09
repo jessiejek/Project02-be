@@ -1,0 +1,11 @@
+bin/
+obj/
+App_Data/
+*.user
+.vs/
+.vscode/
+
+# dev db / runtime
+App_Data/uploads/
+*.dev.db
+*.dev.db-*
