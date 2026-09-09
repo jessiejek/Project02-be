@@ -96,43 +96,61 @@ app still fully on Supabase.
 
 ---
 
-## Phase 1 — Auth cutover
+## Phase 1 — Auth cutover  ▲ IN PROGRESS
 
-**Goal:** every role logs into the real app through the .NET JWT; Supabase Auth
-is dead.
+**Goal:** every role logs into the real app through the .NET JWT; the .NET JWT is
+what middleware and the session context trust. A *parallel* Supabase session is
+still established at login so not-yet-migrated `.from(...)` calls keep working
+(removed in Phase 7). Fully behind `NEXT_PUBLIC_AUTH_MODE` (`supabase` default =
+no change; `dotnet` = the new path).
 
-### Backend
-- [ ] Verify/repair `/api/auth`: `login`, `register`, `refresh-token`, `logout`,
-      `me`, `forgot-password`, `reset-password`, `set-password`, `invite`,
-      `DELETE users/{id}`. (`google`/`facebook` stubs: leave 501 unless the FE
-      uses them — it does not today.)
-- [ ] `login` returns `{ access_token, refresh_token, user_id, role, email }`;
-      `role` = `profiles.role`. JWT `sub` = `Users.Id`, `role` claim set.
-- [ ] Refresh-token rotation + revoke-on-logout; hash at rest.
-- [ ] `reset-password` / `set-password` use `ClientBaseUrl` for the link — the FE
-      set-password page is new (contract §15 gap): coordinate the route name.
+### Backend — ✅ done
+- [x] `/api/auth`: `login`, `register`, `refresh-token`, `logout`, `me`,
+      `forgot-password` (logs link — no SMTP), `reset-password`, `set-password`,
+      `invite`, `DELETE users/{id}` all present. `google`/`facebook` = 501.
+      **Wire is camelCase** (`accessToken`, `firstName`) — ported from the Angular
+      backend; the FE auth client matches that, data resources stay snake_case.
+- [x] `login` → `{ accessToken, refreshToken, user{ id, role, fullName, ... } }`;
+      `role` = `profiles.role`; JWT `sub` = `Users.Id`, role claim set.
+- [x] Refresh-token rotation + revoke-on-logout; SHA-256 hash at rest.
+- [x] `DevDataSeeder` (Development only) — seeds the 5 `account-list.txt` logins
+      (same emails/ids as Supabase) with password **`ClinicDev123!`** so the FE
+      can authenticate without a full data import. Idempotent.
 
-### Frontend
-- [ ] New `SessionProvider` (`src/components/providers/`) backed by .NET: access
-      token in memory, refresh token in an httpOnly cookie set by a Next route
-      handler (`src/app/api/session/route.ts`); silent refresh on 401.
-- [ ] `src/proxy.ts` — decode/verify the .NET JWT for public-vs-protected +
-      role-segment gating (replaces the Supabase `getUser` + `profiles` lookups).
-- [ ] `src/lib/api/client.ts` — attach the access token; on 401 refresh once.
-- [ ] `login`, `forgot-password`, new `reset-password` page, `/logout` route.
-- [ ] Server Components: session via cookie → `/api/auth/me`.
-- [ ] Server actions → `/api/auth/*` + resource endpoints (see Phase 2 for the
-      resource writes they also do):
-      `registerPatientAccount`, `inviteStaffMember`, `createDoctor`,
-      `revokeStaffInvite`.
-- [ ] Delete `src/lib/supabase/client.ts` **auth** usage (keep `.from` until later
-      phases); `admin.ts` service-role client removed once actions are ported.
+### Frontend — ✅ done (gated by `NEXT_PUBLIC_AUTH_MODE=dotnet`)
+- [x] `src/lib/auth/` — `mode.ts` (switch), `cookies.ts` (httpOnly `clinic_at`/
+      `clinic_rt`), `jwt.ts` (payload decode — **no sig verify yet**, §17),
+      `dotnet.ts` (/api/auth client), `session.ts` (`getServerSession()`),
+      `types.ts` (`SessionInfo`).
+- [x] `src/app/api/session/login/route.ts` — .NET login → sets httpOnly cookies;
+      best-effort parallel `supabase.auth.signInWithPassword`.
+- [x] `src/proxy.ts` — `proxyDotnet()` gates on the JWT cookie (+ silent refresh
+      via the refresh cookie); `proxySupabase()` unchanged. `/api` excluded from
+      the matcher.
+- [x] `SessionProvider` — takes `initialSession` from the server (root layout is
+      now `async` → `getServerSession()`); no client auth call in dotnet mode.
+- [x] `login/page.tsx` — posts to `/api/session/login` in dotnet mode.
+- [x] `logout/route.ts` — .NET logout + clear cookies + Supabase signOut.
+- [x] Verified by curl: all 5 roles log in → correct dashboard; cross-role →
+      redirect; no cookie → `/login`; bad password → 401; `next build` green;
+      `supabase` mode regression-clean.
 
-### Verify
-Log in as patient / staff / doctor / admin → correct `/{role}/dashboard`.
-Wrong-role URL → redirected. Register a new patient (creates `Users` + `profiles`
-+ `patients`). Invite a staff member. Refresh survives a page reload; logout
-revokes. No `supabase.auth.*` calls remain (`grep`).
+### Deferred to Phase 1b / later (still on Supabase, work via the parallel session)
+- [ ] Password change + "verify current password" in `{patient,staff,doctor}/profile`
+      (`auth.signInWithPassword` + `auth.updateUser`)
+- [ ] Booking-flow signup (`booking/page.tsx` `auth.signUp` / `signInWithPassword`)
+- [ ] `forgot-password` page → `/api/auth/forgot-password`; new set-password page
+- [ ] `patient/dashboard` email-verify resend (`auth.resend`)
+- [ ] 4 server actions → `/api/auth/invite` + `DELETE /api/auth/users/{id}`
+      (they still work via the parallel Supabase session for now)
+- [ ] 3 RSC `supabase.auth.getUser()` sites → a `getCurrentUserId()` helper
+- [ ] **Sig-verify the JWT in `jwt.ts`** before production (`jose` + shared secret)
+- [ ] Sync the 5 Supabase test-account passwords to `ClinicDev123!` (or import
+      real hashes) so `supabaseLinked` is true — needed only if RLS gets enabled
+
+### Verify (done)
+Log in as each role → correct `/{role}/dashboard`; wrong-role URL → redirected;
+`next build` green. Remaining: register-new-patient + invite flows (deferred set).
 
 ---
 

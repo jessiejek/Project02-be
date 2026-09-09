@@ -126,6 +126,18 @@ if (isSqlite)
     ClinicApp.Infrastructure.SqliteDemoViews.CreateViews(db);
 }
 
+// ── Dev login accounts (INTEGRATION_ROADMAP.md Phase 1 — auth cutover) ─────
+// Development only. Seeds the account-list.txt users so the frontend can log in
+// against this API without a full data import. No-op if the users already exist.
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ClinicAppDbContext>();
+    var hasher = scope.ServiceProvider.GetRequiredService<PasswordHasherService>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DevDataSeeder");
+    await ClinicApp.Infrastructure.DevDataSeeder.SeedAsync(db, hasher, logger);
+}
+
 app.UseHttpsRedirection();
 
 // Serve uploaded files (patient documents / lab results) from App_Data/uploads.
