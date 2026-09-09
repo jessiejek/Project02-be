@@ -18,6 +18,7 @@ public class PrescriptionGroup : IHasUpdatedAt
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
+    [JsonPropertyName("prescription_line_items")]
     public ICollection<PrescriptionLineItem> LineItems { get; set; } = new List<PrescriptionLineItem>();
 }
 
@@ -57,6 +58,7 @@ public class PrescriptionTemplate : IHasUpdatedAt
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
+    [JsonPropertyName("prescription_template_items")]
     public ICollection<PrescriptionTemplateItem> Items { get; set; } = new List<PrescriptionTemplateItem>();
 }
 

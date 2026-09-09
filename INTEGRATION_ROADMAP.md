@@ -327,7 +327,35 @@ Parity diff empty on all booking/payment reads.
 
 ---
 
-## Phase 5 — Clinical records
+## Phase 5 — Clinical records  ▲ IN PROGRESS
+
+### Backend — done
+- [x] 5 new controllers: `ConsultationsController` (+diagnoses replace-all),
+      `VitalsController` (upsert-by-booking), `FollowUpsController`,
+      `PrescriptionsController` (groups+items / templates / favorites),
+      `SoapController` (phrases / templates). `AuditLogsController` gains POST.
+- [x] `DevController` + import script cover all 11 clinical tables. 5 parity
+      cases green (consultations, vitals, follow_ups, rx_templates, soap_templates).
+- [x] `PrescriptionGroup.LineItems` / `PrescriptionTemplate.Items` get
+      `[JsonPropertyName]` (`prescription_line_items` / `_template_items`).
+
+### Frontend — partial
+- [x] `src/lib/data/clinical.ts` — query/upsert for every clinical resource;
+      all flipped in `mode.ts`.
+- [x] Migrated (doctor's clinical tools): `VitalsEditor` (read + upsert —
+      API-verified), `SoapFieldToolbar` (phrases read), `PrescriptionForm`
+      (favorites + rx-templates read).
+- [ ] **Record-view read pages** (`patient/medical-records`, `patient/prescriptions`,
+      dashboards, `{doctor,admin,staff}/patients/[id]`) — these use deep PostgREST
+      embeds (`consultations(bookings(...), doctors(...), consultation_diagnoses,
+      follow_ups)`, `prescription_groups(bookings(doctors(...)))`). Need the .NET
+      consultation/rx endpoints to `.Include()` those, or compose client-side.
+- [ ] The big `doctor/consultation/[bookingId]` save orchestration (consultation
+      upsert + diagnoses + vitals + follow-up + Rx + SOAP + audit in one flow).
+- [ ] SOAP phrase/template + Rx template/favorite **write** CRUD (still Supabase).
+
+### Original plan
+
 
 **Resources:** `consultations`, `consultation_diagnoses`, `patient_vital_readings`,
 `follow_ups`, `prescription_groups`, `prescription_line_items`,
