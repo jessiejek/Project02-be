@@ -128,11 +128,15 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         {
             e.HasKey(p => p.PatientId);
             e.HasIndex(p => p.PatientCode).IsUnique();
+            // schema.sql: patients.user_id uuid unique — nullable, so filtered.
+            e.HasIndex(p => p.UserId).IsUnique().HasFilter("[user_id] IS NOT NULL");
         });
 
         modelBuilder.Entity<StaffAccount>(e =>
         {
             e.HasKey(s => s.StaffId);
+            // schema.sql: staff_accounts.user_id uuid not null unique.
+            e.HasIndex(s => s.UserId).IsUnique();
         });
 
         modelBuilder.Entity<Doctor>(e =>

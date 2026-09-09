@@ -154,11 +154,39 @@ Log in as each role → correct `/{role}/dashboard`; wrong-role URL → redirect
 
 ---
 
-## Phase 2 — Identity & directory reads
+## Phase 2 — Identity & directory reads  ▲ IN PROGRESS
 
 **Resources:** `profiles`, `patients`, `staff_accounts`, `doctors`,
 `doctor_schedules`, `doctor_services`, `doctor_blocked_dates`,
 `doctor_day_statuses`
+
+### Data mirror (prerequisite — done)
+- [x] `Project02-be` `POST /api/dev/import` (Development only) — upserts rows by
+      their real PK. `DevDataSeeder` slimmed to `users`+`profiles` only.
+- [x] `Project02-fe/scripts/dev/import-from-supabase.mjs` — pulls each table from
+      Supabase (service role) → `/api/dev/import` in FK order. Run once after
+      `dotnet run`. Re-run any time to re-sync.
+- [x] Schema-fidelity fix: `staff_accounts.user_id` / `patients.user_id` unique
+      indexes were missing (migration `AddUserIdUniqueIndexes`).
+- [x] Parity harness now uses the service-role key (compares data, not RLS).
+
+### `doctors` — done
+- [x] `src/lib/data/doctors.ts` — `queryDoctors()` / `queryDoctorById()`, both
+      backends projected to the canonical §4/§6 shape. Flipped in `mode.ts`.
+- [x] Parity `doctors` case: **clean** (2 rows).
+- [x] Migrated read sites: `patient/doctors`, `patient/doctors/[id]`,
+      `admin/doctors`. Live-verified via `AUTH_MODE=dotnet` — page renders from
+      .NET, Inactive doctor correctly hidden (Supabase anon-key path leaked it).
+
+### Remaining
+- [ ] `patients`, `staff_accounts` data modules + `GET /api/patients/{id}|me|list`,
+      `PUT /api/patients/{id}|consent`, `staff_accounts` list/PUT
+- [ ] `doctor_schedules` / `doctor_services` / `doctor_blocked_dates` /
+      `doctor_day_statuses` data modules
+- [ ] Remaining ~13 `supabase.from("doctors")` read sites (booking, dashboards,
+      calendar, walk-in, staff/doctor-status, admin/services, …)
+- [ ] Doctor **writes** (`admin/doctors/[id]/edit`, `DoctorForm`, `doctor/profile`,
+      `doctor/schedule`) → `PUT /api/doctors/{id}` + schedule/service endpoints
 
 ### Backend
 - [ ] `GET /api/patients/{id}`, `/me`, list (search by `patient_code`/name/contact,
