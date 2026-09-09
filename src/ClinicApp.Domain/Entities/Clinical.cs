@@ -29,6 +29,28 @@ public class Consultation : IHasUpdatedAt
     [JsonPropertyName("follow_ups")] public FollowUp? FollowUp { get; set; }
 }
 
+/// <summary>§16.8 Form 2. One per consultation (upsert conflict key = consultation_id).
+/// Doctor license / PTR are read live from `doctors` at print time, not stored here.</summary>
+public class MedicalCertificate : IHasUpdatedAt
+{
+    public Guid CertificateId { get; set; }
+    public Guid ConsultationId { get; set; }
+    public Guid PatientId { get; set; }
+    public Guid DoctorId { get; set; }
+    public DateOnly IssueDate { get; set; }
+    public string? PatientAddressSnapshot { get; set; }  // "residing at ..."
+    public string? ExaminedAt { get; set; }               // "has been examined in ..." (place)
+    public DateOnly? ExaminationDateFrom { get; set; }     // "on ..."
+    public DateOnly? ExaminationDateTo { get; set; }       // "until ..."
+    public string? DiagnosisText { get; set; }
+    public string? Recommendations { get; set; }
+    public string? PurposeException { get; set; }          // the "except ______" blank
+    public DateOnly? ComeBackOn { get; set; }
+    public Guid? IssuedByUserId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 public class ConsultationDiagnosis
 {
     public Guid Id { get; set; }

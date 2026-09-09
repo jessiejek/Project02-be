@@ -34,6 +34,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
 
     // Clinical
     public DbSet<Consultation> Consultations => Set<Consultation>();
+    public DbSet<MedicalCertificate> MedicalCertificates => Set<MedicalCertificate>();
     public DbSet<ConsultationDiagnosis> ConsultationDiagnoses => Set<ConsultationDiagnosis>();
     public DbSet<VitalFieldTemplate> VitalFieldTemplates => Set<VitalFieldTemplate>();
     public DbSet<PatientVitalReading> PatientVitalReadings => Set<PatientVitalReading>();
@@ -218,6 +219,15 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         });
 
         modelBuilder.Entity<ConsultationDiagnosis>(e => e.HasKey(d => d.Id));
+
+        modelBuilder.Entity<MedicalCertificate>(e =>
+        {
+            e.HasKey(m => m.CertificateId);
+            e.HasIndex(m => m.ConsultationId).IsUnique(); // upsert conflict key
+            e.HasOne<Consultation>().WithMany().HasForeignKey(m => m.ConsultationId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Patient>().WithMany().HasForeignKey(m => m.PatientId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Doctor>().WithMany().HasForeignKey(m => m.DoctorId).OnDelete(DeleteBehavior.NoAction);
+        });
 
         modelBuilder.Entity<VitalFieldTemplate>(e =>
         {
