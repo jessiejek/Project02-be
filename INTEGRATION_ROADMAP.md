@@ -247,9 +247,22 @@ patient lists — all served by .NET, parity diff empty.
 
 ---
 
-## Phase 3 — Clinical lookup tables
+## Phase 3 — Clinical lookup tables  ✅ DONE
 
 **Resources:** `medicines`, `vital_field_templates`, `icd10_codes`
+
+- [x] `LookupsController`: `GET /api/medicines?q=`, `/api/vital-field-templates`,
+      `/api/icd10-codes?q=` (new — §15 gap).
+- [x] `medicines` + `vital_field_templates` added to `dev/import` + the import
+      script (their PKs differed between the .NET HasData seed and Supabase;
+      wiped + re-imported so ids match — Phase 5 references `template_id`).
+- [x] `src/lib/data/lookups.ts` — `queryMedicines` / `queryVitalFieldTemplates`
+      / `queryIcd10Codes`. All three flipped in `mode.ts`.
+- [x] Migrated: `PrescriptionForm` (medicine search), `VitalsEditor` +
+      `doctor/consultation/[bookingId]` + `doctor/patients/[id]` (template load).
+- [x] Parity clean: `medicines` (15), `vital_field_templates` (9).
+- [x] `next build` + `tsc` green.
+- `icd10_codes`: endpoint + `queryIcd10Codes` ready; no FE caller until Phase 5.
 
 > **`services` / `doctor_services` / `booking_services` are VESTIGIAL** (owner
 > confirmed — same call as `doctor_schedules`). This clinic has no configurable

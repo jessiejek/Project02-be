@@ -33,6 +33,8 @@ public sealed class DevController(ClinicAppDbContext db, IWebHostEnvironment env
         {
             upserted = req.Table switch
             {
+                "medicines"             => await UpsertMedicines(req.Rows, ct),
+                "vital_field_templates" => await UpsertVitalTemplates(req.Rows, ct),
                 "services"              => await UpsertServices(req.Rows, ct),
                 "staff_accounts"        => await UpsertStaffAccounts(req.Rows, ct),
                 "patients"              => await UpsertPatients(req.Rows, ct),
@@ -71,6 +73,34 @@ public sealed class DevController(ClinicAppDbContext db, IWebHostEnvironment env
     private static TimeOnly T(JsonElement r, string k) => TimeOnly.Parse(r.GetProperty(k).GetString()!);
     private static TEnum E<TEnum>(JsonElement r, string k, TEnum dflt) where TEnum : struct =>
         r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String && Enum.TryParse<TEnum>(v.GetString(), out var e) ? e : dflt;
+
+    private async Task<int> UpsertMedicines(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "medicine_id");
+            var e = await db.Medicines.FindAsync([id], ct) ?? Track(new Medicine { MedicineId = id });
+            e.GenericName = S(r, "generic_name");
+            e.CreatedAt = TS(r, "created_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<int> UpsertVitalTemplates(List<JsonElement> rows, CancellationToken ct)
+    {
+        foreach (var r in rows)
+        {
+            var id = G(r, "template_id");
+            var e = await db.VitalFieldTemplates.FindAsync([id], ct) ?? Track(new VitalFieldTemplate { TemplateId = id });
+            e.Description = S(r, "description");
+            e.FormKey = S(r, "form_key");
+            e.Unit = S(r, "unit");
+            e.Icon = S(r, "icon");
+            e.IsDefault = BN(r, "is_default", false);
+            e.CreatedAt = TS(r, "created_at");
+        }
+        return await db.SaveChangesAsync(ct);
+    }
 
     private async Task<int> UpsertServices(List<JsonElement> rows, CancellationToken ct)
     {
