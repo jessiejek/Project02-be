@@ -81,6 +81,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         configurationBuilder.Properties<DoctorDayStatusEnum>().HaveConversion<string>();
         configurationBuilder.Properties<ServiceCategory>().HaveConversion<string>();
         configurationBuilder.Properties<BookingStatus>().HaveConversion<string>();
+        configurationBuilder.Properties<VisitType>().HaveConversion<string>();
         configurationBuilder.Properties<PaymentMode>().HaveConversion<string>();
         configurationBuilder.Properties<PaymentStatus>().HaveConversion<string>();
         configurationBuilder.Properties<PaymentMethod>().HaveConversion<string>();

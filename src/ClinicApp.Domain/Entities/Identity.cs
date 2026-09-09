@@ -33,6 +33,9 @@ public class Patient : IHasUpdatedAt
     public string? EmergencyContactRelationship { get; set; }
     public string? BloodType { get; set; }
     public string? PhilhealthNumber { get; set; }
+    // §16.6 — proof for the senior-citizen / PWD fee line.
+    public string? SeniorIdNumber { get; set; }
+    public string? PwdIdNumber { get; set; }
     public string? HmoProvider { get; set; }
     public string? HmoCardNumber { get; set; }
     public bool IsGuest { get; set; }

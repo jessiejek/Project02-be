@@ -16,7 +16,13 @@ public record UpsertConsultationRequest(
     string? Objective,
     string? Assessment,
     string? Plan,
-    string? DoctorNotes);
+    string? DoctorNotes,
+    // §16.6 — doctor picks the fee line at consultation. Null = leave the
+    // booking's current value untouched.
+    VisitType? VisitType = null,
+    bool? MedCertRequested = null,
+    /// <summary>'Senior' | 'PWD' | null.</summary>
+    string? DiscountCategory = null);
 
 public record DiagnosisInput(string? Icd10Code, string? CustomDescription, DiagnosisType Type);
 
@@ -88,6 +94,36 @@ public class ConsultationsController(ClinicAppDbContext db) : ControllerBase
             c.CompletedByUserId = CurrentUserId();
         }
         c.UpdatedAt = now;
+
+        // §16.6 — apply the doctor's fee-line choices to the booking and
+        // recompute the flat clinic fee server-side.
+        var booking = await db.Bookings.SingleOrDefaultAsync(b => b.BookingId == bookingId, ct);
+        if (booking is not null)
+        {
+            if (req.VisitType is { } vt) booking.VisitType = vt;
+            if (req.MedCertRequested is { } mc) booking.MedCertRequested = mc;
+            if (req.DiscountCategory is not null)
+                booking.DiscountCategory = string.IsNullOrWhiteSpace(req.DiscountCategory) ? null : req.DiscountCategory.Trim();
+
+            var settings = await db.ClinicSettings.SingleOrDefaultAsync(s => s.Id == 1, ct);
+            if (settings is not null)
+            {
+                var subtotal = booking.DiscountCategory is not null
+                    ? settings.FeeSeniorPwd
+                    : booking.VisitType == VisitType.FollowUp
+                        ? settings.FeeFollowUp
+                        : settings.FeeConsultation;
+                var total = subtotal + (booking.MedCertRequested ? settings.FeeMedCert : 0m);
+
+                booking.ConsultationFeeSnapshot = subtotal;
+                booking.DiscountAmount = booking.DiscountCategory is not null
+                    ? Math.Max(0m, settings.FeeConsultation - subtotal)
+                    : 0m;
+                booking.TotalFee = total;
+                booking.AmountDue = total;
+                booking.UpdatedAt = now;
+            }
+        }
 
         await db.SaveChangesAsync(ct);
         return Ok(c);

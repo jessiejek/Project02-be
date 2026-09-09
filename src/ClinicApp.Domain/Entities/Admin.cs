@@ -42,6 +42,17 @@ public class ClinicSetting
     public string? FaviconUrl { get; set; }
     public string? WebsiteUrl { get; set; }
     public string? PrivacyPolicyText { get; set; }
+
+    // §16.6 — flat clinic-wide fee schedule. Doctor picks which line applies at
+    // consultation via Booking.VisitType / discount category; secretary collects
+    // against the recomputed total.
+    public decimal FeeConsultation { get; set; } = 450m;
+    public decimal FeeFollowUp { get; set; } = 350m;
+    public decimal FeeSeniorPwd { get; set; } = 400m;
+    public decimal FeeMedCert { get; set; } = 50m;
+    /// <summary>Working assumption (§16.6): senior/PWD pay −20% of the total.</summary>
+    public decimal DiscountPct { get; set; } = 0.20m;
+
     public Guid? UpdatedByUserId { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

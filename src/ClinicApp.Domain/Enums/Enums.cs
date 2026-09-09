@@ -48,6 +48,13 @@ public enum ServiceCategory
     Diagnostic
 }
 
+/// <summary>§16.6 — doctor-set at consultation; drives which fee applies.</summary>
+public enum VisitType
+{
+    New,
+    FollowUp
+}
+
 public enum BookingStatus
 {
     Pending,

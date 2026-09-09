@@ -18,6 +18,15 @@ public class Booking : IHasUpdatedAt
     public decimal TotalFee { get; set; }
     public decimal AmountDue { get; set; }
     public bool IsWalkIn { get; set; }
+
+    // §16.6 — doctor sets VisitType at consultation; fee recomputed on complete.
+    public VisitType VisitType { get; set; } = VisitType.New;
+    /// <summary>'Senior' | 'PWD' | null — snapshot of the discount line applied.</summary>
+    public string? DiscountCategory { get; set; }
+    public decimal DiscountAmount { get; set; }
+    /// <summary>Patient asked for a medical certificate → +FeeMedCert on the total.</summary>
+    public bool MedCertRequested { get; set; }
+
     public ProofType? ProofType { get; set; }
     public string? ProofValue { get; set; }
     public DateTimeOffset? ProofSubmittedAt { get; set; }

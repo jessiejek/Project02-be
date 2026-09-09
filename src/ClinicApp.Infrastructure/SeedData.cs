@@ -11,13 +11,21 @@ internal static class SeedData
 {
     public static void Apply(ModelBuilder modelBuilder)
     {
+        // §16.8 identity (owner-confirmed, this migration).
         modelBuilder.Entity<ClinicSetting>().HasData(new ClinicSetting
         {
             Id = 1,
-            ClinicName = "Dr. Grace Gavino Medical Clinic",
-            Address = "TBD",
+            ClinicName = "Grace Medical Clinic",
+            Address = "3ML Quezon National Highway, Buaya, Lapu-Lapu City",
+            ContactNumber = "09285612976",
             DefaultPaymentMode = PaymentMode.PayAtClinic,
             ConsentVersion = 1,
+            // §16.6 flat clinic-wide fee schedule.
+            FeeConsultation = 450m,
+            FeeFollowUp = 350m,
+            FeeSeniorPwd = 400m,
+            FeeMedCert = 50m,
+            DiscountPct = 0.20m,
             UpdatedAt = SeedTimestamp
         });
 
@@ -28,7 +36,8 @@ internal static class SeedData
             new ClinicOperatingHour { DayOfWeek = 3, IsClosed = false, OpenTime = new TimeOnly(8, 0), CloseTime = new TimeOnly(17, 0) },
             new ClinicOperatingHour { DayOfWeek = 4, IsClosed = false, OpenTime = new TimeOnly(8, 0), CloseTime = new TimeOnly(17, 0) },
             new ClinicOperatingHour { DayOfWeek = 5, IsClosed = false, OpenTime = new TimeOnly(8, 0), CloseTime = new TimeOnly(17, 0) },
-            new ClinicOperatingHour { DayOfWeek = 6, IsClosed = false, OpenTime = new TimeOnly(8, 0), CloseTime = new TimeOnly(12, 0) }
+            // §16.8 owner-corrected: single session, Sat 10:00–17:00 (was 08:00–12:00).
+            new ClinicOperatingHour { DayOfWeek = 6, IsClosed = false, OpenTime = new TimeOnly(10, 0), CloseTime = new TimeOnly(17, 0) }
         );
 
         modelBuilder.Entity<ClinicAcceptedPaymentMethod>().HasData(

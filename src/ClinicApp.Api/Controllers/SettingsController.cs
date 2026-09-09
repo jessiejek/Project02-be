@@ -40,6 +40,12 @@ public class SettingsController(ClinicAppDbContext db) : ControllerBase
         settings.FaviconUrl = payload.FaviconUrl;
         settings.WebsiteUrl = payload.WebsiteUrl;
         settings.PrivacyPolicyText = payload.PrivacyPolicyText;
+        // §16.6 fee schedule.
+        settings.FeeConsultation = payload.FeeConsultation;
+        settings.FeeFollowUp = payload.FeeFollowUp;
+        settings.FeeSeniorPwd = payload.FeeSeniorPwd;
+        settings.FeeMedCert = payload.FeeMedCert;
+        settings.DiscountPct = payload.DiscountPct;
         settings.UpdatedByUserId = CurrentUserId();
         settings.UpdatedAt = DateTimeOffset.UtcNow;
 
