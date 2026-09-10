@@ -22,7 +22,11 @@ public record UpsertConsultationRequest(
     VisitType? VisitType = null,
     bool? MedCertRequested = null,
     /// <summary>'Senior' | 'PWD' | null.</summary>
-    string? DiscountCategory = null);
+    string? DiscountCategory = null,
+    // §16.6 Professional Fee decision. 'Charge' | 'Waive' | null (not yet decided).
+    string? PfDecision = null,
+    decimal? PfAmount = null,
+    string? PfWaiveReason = null);
 
 public record DiagnosisInput(string? Icd10Code, string? CustomDescription, DiagnosisType Type);
 
@@ -95,6 +99,12 @@ public class ConsultationsController(ClinicAppDbContext db) : ControllerBase
         c.Assessment = req.Assessment;
         c.Plan = req.Plan;
         c.DoctorNotes = req.DoctorNotes;
+        // §16.6 — the PF decision travels with the consultation row.
+        c.PfDecision = string.IsNullOrWhiteSpace(req.PfDecision) ? null : req.PfDecision.Trim();
+        c.PfAmount = c.PfDecision == "Charge" ? req.PfAmount : null;
+        c.PfWaiveReason = c.PfDecision == "Waive"
+            ? (string.IsNullOrWhiteSpace(req.PfWaiveReason) ? null : req.PfWaiveReason.Trim())
+            : null;
         if (req.Status == ConsultationStatus.Completed && c.CompletedAt is null)
         {
             c.CompletedAt = now;

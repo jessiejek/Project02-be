@@ -17,6 +17,15 @@ public class Consultation : IHasUpdatedAt
     public string? Assessment { get; set; }
     public string? Plan { get; set; }
     public string? DoctorNotes { get; set; }
+
+    // §16.6 Professional Fee decision — the doctor's explicit call on the PF for
+    // this visit. 'Charge' | 'Waive' | null (not yet decided). Recorded for the
+    // clinical/billing record; the flat fee itself is still computed from the
+    // booking's visit_type / med_cert / discount.
+    public string? PfDecision { get; set; }
+    public decimal? PfAmount { get; set; }
+    public string? PfWaiveReason { get; set; }
+
     public Guid? CompletedByUserId { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
