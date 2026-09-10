@@ -203,6 +203,43 @@ public class AuthController(
         return dto is null ? Problem("User has no profile/role assigned.", statusCode: 500) : Ok(dto);
     }
 
+    /// <summary>Signed-in user changes their own password (verifies the current one first).</summary>
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
+            return BadRequest(new { message = "New password must be at least 6 characters." });
+
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        var user = await db.Users.FindAsync([userId.Value], ct);
+        if (user is null) return Unauthorized();
+
+        if (!passwordHasher.Verify(user, user.PasswordHash, request.CurrentPassword))
+            return BadRequest(new { message = "Current password is incorrect." });
+
+        user.PasswordHash = passwordHasher.Hash(user, request.NewPassword);
+        await db.SaveChangesAsync(ct);
+        return Ok(new { message = "Password updated." });
+    }
+
+    /// <summary>Re-send the email-verification link (no-op without SMTP — logs the link).</summary>
+    [HttpPost("resend-verification")]
+    public async Task<IActionResult> ResendVerification(ResendVerificationRequest request, CancellationToken ct)
+    {
+        var email = request.Email.Trim().ToLower();
+        var user = await db.Users.SingleOrDefaultAsync(u => u.Email == email, ct);
+        if (user is not null)
+        {
+            var token = tokenService.CreatePurposeToken(user.Id, "email-verify", TimeSpan.FromDays(1));
+            var clientBaseUrl = configuration["ClientBaseUrl"] ?? "http://localhost:3000";
+            Console.WriteLine($"[AuthController] Email verification link for {email}: {clientBaseUrl}/verify-email?token={Uri.EscapeDataString(token)}");
+        }
+        return Ok(new { message = "If that email is registered, a verification link has been sent." });
+    }
+
     [Authorize]
     [HttpPost("avatar")]
     public async Task<IActionResult> UploadAvatar(IFormFile file, [FromServices] ClinicApp.Infrastructure.Files.IFileStorageService fileStorage, CancellationToken ct)

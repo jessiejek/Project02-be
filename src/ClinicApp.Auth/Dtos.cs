@@ -32,6 +32,12 @@ public record SetPasswordRequest(
     [property: JsonPropertyName("newPassword")] string NewPassword,
     [property: JsonPropertyName("confirmPassword")] string ConfirmPassword);
 
+public record ChangePasswordRequest(
+    [property: JsonPropertyName("currentPassword")] string CurrentPassword,
+    [property: JsonPropertyName("newPassword")] string NewPassword);
+
+public record ResendVerificationRequest(string Email);
+
 public record GoogleLoginRequest(
     string Provider,
     [property: JsonPropertyName("idToken")] string? IdToken,
