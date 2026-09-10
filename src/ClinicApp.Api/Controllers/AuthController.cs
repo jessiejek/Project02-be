@@ -353,7 +353,18 @@ public class AuthController(
         var user = await db.Users.FindAsync([id], ct);
         if (user is null) return NotFound();
 
-        db.Users.Remove(user); // cascades to Profile/Patient/StaffAccount FKs per DB constraints
+        // profiles.id / staff_accounts.user_id have NO database FK to users (they
+        // were auth.users rows under Supabase), so deleting the user does not
+        // cascade to them — remove them explicitly. Doctor + doctor_schedules DO
+        // cascade from staff_accounts.staff_id. This is the revoke-invite path;
+        // patient-linked users are not deleted here (their visit history blocks it).
+        var staff = await db.StaffAccounts.Where(s => s.UserId == id).ToListAsync(ct);
+        if (staff.Count > 0) db.StaffAccounts.RemoveRange(staff);
+
+        var profile = await db.Profiles.FindAsync([id], ct);
+        if (profile is not null) db.Profiles.Remove(profile);
+
+        db.Users.Remove(user);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
