@@ -4,7 +4,9 @@ Pairs every backend phase with the frontend work that consumes it, so each phase
 ends with something **demonstrably working end-to-end**, not just a merged PR.
 
 - Backend: `Project02-be` (this repo) — ASP.NET Core `net10.0`, EF Core, SQL Server
-- Frontend: `Project02-fe` — Next.js 16, currently talking directly to Supabase
+- Frontend: `Project02-fe` — Next.js 16. **Supabase teardown complete (2026-09-10):**
+  the FE talks only to this API; `@supabase/*` is uninstalled. See Phase 7's
+  "The Supabase teardown" section.
 - Wire contract: `../Project02-fe/DOTNET_FRONTEND_CONTRACT.md` (§0–15 = the 1:1
   contract, §16 = amendments, §17 = open risks, §18 = checklist). **JSON keys and
   enum strings are frozen by that doc — paths may differ, shapes may not.**
@@ -459,7 +461,7 @@ Upload a PDF on `patient/documents` → row created, file downloads from
 
 ---
 
-## Phase 7 — Admin settings, announcements, audit log, reports — then remove Supabase  ▲ IN PROGRESS
+## Phase 7 — Admin settings, announcements, audit log, reports — then remove Supabase  ✅ DONE
 
 ### Migrated — done
 - [x] Backend gaps filled: `PUT /api/admin/operating-hours` (bulk),
@@ -474,67 +476,45 @@ Upload a PDF on `patient/documents` → row created, file downloads from
       call sites (booking, patient dashboard, patient/doctors, patient/doctors/[id]).
 - [x] Parity: `announcements`, `audit_logs` clean. All Phase 7 endpoints API-verified.
 
-### The Supabase teardown — partial done, full deletion still BLOCKED
+### The Supabase teardown — ✅ DONE (2026-09-10, `Project02-fe` HEAD `058cff6`)
 
-**Done this pass:**
-- [x] Defaults flipped: `AUTH_MODE` and `mode.ts` `GLOBAL_DEFAULT` now resolve to
-      `dotnet` unless `NEXT_PUBLIC_{AUTH,API}_MODE=supabase` is set explicitly.
-      `.env.local` / `env.example` set both to `dotnet`. `next build` green.
-- [x] `doctor/consultation` amendment history → `queryAuditLogs(supabase,
-      { entityType:"Consultation", entityId })`.
-- [x] `PrescriptionForm` group save → `upsertRxGroupByBooking(...)` (dropped the
-      manual `prescription_groups` + `prescription_line_items` writes).
+`@supabase/ssr` **and** `@supabase/supabase-js` uninstalled. `grep -r "@supabase" src`
+and `grep -rn "@/lib/supabase" src` → nothing. `next build` + `tsc --noEmit` green.
+Parity harness 15/15 (see `scripts/parity/README.md` — needs a one-off
+`npm i -D @supabase/supabase-js` to run again).
 
-**Still blocking `rm src/lib/supabase/*` + `npm rm @supabase/*`** — ~55 direct
-`.from(...)` / `supabase.auth.*` call sites remain, all in areas parked for Phase 8
-or deferred from Phase 1b:
-- [ ] **Booking creation / walk-in queue** — `booking/page.tsx`, `admin/walk-in`,
-      `staff/walk-in`, `admin/calendar` (date-range `bookings` reads),
-      `doctor/schedule`. All slot/queue-shaped → rebuilt in Phase 8, not migrated.
-- [ ] **Parked schedule resources** — `doctor_schedules`, `doctor_day_statuses`,
-      `doctor_blocked_dates`. Vestigial; replaced by the FCFS queue in Phase 8.
-- [ ] **Phase 1b auth deferrals** — `patient/dashboard` `auth.resend`,
-      `booking/page.tsx` `auth.signUp/signInWithPassword`,
-      `{patient,staff,doctor}/profile` password change. Need `/api/auth`
-      equivalents (resend-verification, self-service register, change-password).
-- [ ] **Compat crutches** — `SessionProvider`, `proxy.ts`, `login/page.tsx`
-      supabase-mode branches; the parallel best-effort Supabase login. Remove with
-      the flags once the above land.
-- [ ] **Then** delete `src/lib/supabase/{client,server,admin}.ts` +
-      `src/lib/patientUploads.ts`; `npm rm @supabase/ssr` (keep
-      `@supabase/supabase-js` as a devDep for the parity harness); drop
-      `NEXT_PUBLIC_SUPABASE_*`; remove the `API_MODE`/`AUTH_MODE` flags and every
-      Supabase branch in `src/lib/data/`; retire `src/data/supabase-types.ts`.
+- [x] **Server actions** — `inviteStaffMember` → `POST /api/auth/invite`;
+      `revokeStaffInvite` → `GET /api/staff-accounts/{id}` (guard status=Invited) +
+      `DELETE /api/auth/users/{userId}`; `createDoctor` → `POST /api/auth/invite`
+      with an optional `doctor` payload that creates `doctors` + `doctor_schedules`
+      in the same `SaveChanges`. `createAdminClient()` gone.
+      Backend: `DELETE /api/auth/users/{id}` now removes `profiles` + `staff_accounts`
+      explicitly (they had no FK to `users`); doctor/schedules cascade from
+      `staff_accounts.staff_id`.
+- [x] **Vestigial public booking flow deleted** — `src/app/booking/**`,
+      `actions/registerPatientAccount.ts`, `lib/data/doctorServices.ts`. Clinic is
+      walk-in only / staff-driven (§16.3); there was never a patient self-booking.
+- [x] **All 48 pages/components** dropped `createClient()` from `@/lib/supabase`.
+      6 that still had inline `supabase.from(...)` were rewired to the data layer;
+      `patient/bookings/[id]` lost its dead online-payment-proof flow.
+- [x] **`src/lib/data/*` (13 files)** — every fn is .NET-only via `src/lib/api/client.ts`.
+      `src/lib/data/mode.ts` (`resolveMode`/`GLOBAL_DEFAULT`) deleted. Each fn keeps a
+      vestigial leading `_supabase: unknown` param (callers pass `null as never`) —
+      an optional later cleanup drops it + the ~200 call-site args.
+- [x] **Deleted** `src/lib/supabase/{client,server,admin}.ts`, `src/lib/patientUploads.ts`
+      (dead Storage helper), `src/lib/data/mode.ts`.
+- [x] **`src/proxy.ts`** — dotnet-JWT-only; `proxySupabase` + the `AUTH_MODE` branch
+      removed. `api/client.ts` token provider no longer gated on `NEXT_PUBLIC_AUTH_MODE`.
+- [x] **env** — `env.example` trimmed to `NEXT_PUBLIC_API_URL`; the Supabase vars are
+      commented, needed only by `scripts/parity/*` + `scripts/dev/import-from-supabase.mjs`
+      (which still read the still-live Supabase project from `.env.local`).
 
-### (original notes)
-
-**Resources:** `clinic_settings`, `clinic_operating_hours`,
-`clinic_accepted_payment_methods`, `announcements`, `audit_logs` (read),
-`v_doctor_ratings`, `v_daily_booking_summary`, `v_unpaid_completed_visits`,
-`v_pending_follow_ups`
-
-### Backend
-- [ ] `GET/PUT /api/settings` (singleton `id=1`).
-- [ ] `GET/PUT /api/admin/operating-hours[/{dayOfWeek}]`; `GET /api/admin/payment-methods`.
-- [ ] `announcements` CRUD; `GET /api/audit-logs` (filter by entity).
-- [ ] `GET /api/reports/{doctor-ratings,daily-booking-summary,unpaid-completed-visits,pending-follow-ups}`.
-
-### Frontend
-`admin/settings`, `admin/announcements` + `staff/announcements`,
-`admin/audit-logs`, `admin/reports`, and the four dashboards
-(`{patient,doctor,staff,admin}/dashboard`).
-
-### Cleanup (the payoff)
-- [ ] Delete `src/lib/supabase/{client,server,admin}.ts`, remove `@supabase/*`
-      from `package.json`, drop `NEXT_PUBLIC_SUPABASE_*` from env + `env.example`.
-- [ ] Remove `API_MODE` flag + every Supabase branch in `src/lib/data/`.
-- [ ] `grep -r "supabase" src` → only comments/historical docs remain.
-- [ ] `src/data/supabase-types.ts` → keep as the type source or regenerate from
-      the .NET DTOs; note the decision in the PR.
-
-### Verify
-Full app, every role, no Supabase env vars set. `next build` green with
-`@supabase/*` uninstalled.
+**Left as harmless follow-ups (not blocking anything):**
+- `src/data/supabase-types.ts` kept — standalone type file, no runtime import, still
+  used for ~5 `Database[...]` row types.
+- `src/lib/auth/mode.ts` `AUTH_MODE` is still env-overridable to `"supabase"`; 3 files
+  branch on it (`session.ts`, `logout/route.ts`, `api/session/token/route.ts`).
+- The `_supabase: unknown` params + `null as never` call-site args across `src/lib/data/*`.
 
 ---
 
