@@ -159,7 +159,7 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
         var doctorId = await CurrentDoctorIdAsync(ct);
         if (doctorId is null) return Forbid();
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var today = ClinicApp.Domain.ClinicClock.Today;
         var bookings = await WithEmbeds()
             .Where(b => b.DoctorId == doctorId && b.AppointmentDate == today)
             .OrderBy(b => b.SlotStartTime)
@@ -176,7 +176,7 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
         var doctorId = await CurrentDoctorIdAsync(ct);
         if (doctorId is null) return Forbid();
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var today = ClinicApp.Domain.ClinicClock.Today;
         var todays = await db.Bookings.AsNoTracking().Where(b => b.DoctorId == doctorId && b.AppointmentDate == today).ToListAsync(ct);
 
         return Ok(new
@@ -210,7 +210,7 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
     public async Task<ActionResult<PagedResult<Booking>>> GetStaffToday(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null, CancellationToken ct = default)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var today = ClinicApp.Domain.ClinicClock.Today;
         var query = SearchBookings(WithEmbeds().Where(b => b.AppointmentDate == today), q).OrderBy(b => b.SlotStartTime);
         return Ok(await PageAsync(query, page, pageSize, ct));
     }

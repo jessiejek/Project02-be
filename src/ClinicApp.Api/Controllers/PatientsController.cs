@@ -87,7 +87,13 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
         payload.CreatedAt = now;
         payload.UpdatedAt = now;
         if (string.IsNullOrWhiteSpace(payload.PatientCode))
-            payload.PatientCode = $"MF-{Random.Shared.Next(1000, 10000)}";
+        {
+            // §17.1 #1 — server-side monotonic code. The old client/random
+            // `MF-{1000..9999}` had only 9000 values and no retry, so inserts
+            // started failing at ~110 patients. `NEXT VALUE FOR` can't run inside
+            // EF's SqlQuery wrapper, so hit the connection directly.
+            payload.PatientCode = $"MF-{await NextPatientCodeAsync(ct):D6}";
+        }
 
         db.Patients.Add(payload);
         await db.SaveChangesAsync(ct);
@@ -167,6 +173,24 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
     {
         var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(sub, out var id) ? id : null;
+    }
+
+    private async Task<long> NextPatientCodeAsync(CancellationToken ct)
+    {
+        var conn = db.Database.GetDbConnection();
+        var opened = conn.State != System.Data.ConnectionState.Open;
+        if (opened) await conn.OpenAsync(ct);
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT NEXT VALUE FOR patient_code_seq";
+            var result = await cmd.ExecuteScalarAsync(ct);
+            return Convert.ToInt64(result);
+        }
+        finally
+        {
+            if (opened) await conn.CloseAsync();
+        }
     }
 
     private async Task<Guid?> CurrentPatientIdAsync(CancellationToken ct)

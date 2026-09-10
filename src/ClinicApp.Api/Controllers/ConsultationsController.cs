@@ -79,6 +79,13 @@ public class ConsultationsController(ClinicAppDbContext db) : ControllerBase
             c = new Consultation { ConsultationId = Guid.NewGuid(), BookingId = bookingId, CreatedAt = now };
             db.Consultations.Add(c);
         }
+        else if (c.Status is ConsultationStatus.Completed or ConsultationStatus.Amended
+                 && req.Status is not (ConsultationStatus.Completed or ConsultationStatus.Amended))
+        {
+            // §17.3 #15 — a completed medical record is append-only: further
+            // changes must come through the Amended flow, never revert to Draft.
+            return Conflict(new { message = "A completed consultation can only be amended." });
+        }
         c.PatientId = req.PatientId;
         c.DoctorId = req.DoctorId;
         c.Status = req.Status;

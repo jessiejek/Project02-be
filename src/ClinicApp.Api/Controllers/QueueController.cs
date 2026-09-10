@@ -42,7 +42,8 @@ public class QueueController(ClinicAppDbContext db) : ControllerBase
         if (settings is null) return BadRequest(new { message = "Clinic settings missing." });
 
         var now = DateTimeOffset.UtcNow;
-        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var today = ClinicClock.Today;           // §17.1 #3 — Asia/Manila, not UTC
+        var arrival = ClinicClock.TimeNow;
         var visitType = req.VisitType ?? VisitType.New;
         var discount = string.IsNullOrWhiteSpace(req.DiscountCategory) ? null : req.DiscountCategory.Trim();
         var medCert = req.MedCertRequested ?? false;
@@ -55,8 +56,8 @@ public class QueueController(ClinicAppDbContext db) : ControllerBase
             PatientId = patient.PatientId,
             DoctorId = doctor.DoctorId,
             AppointmentDate = today,
-            SlotStartTime = TimeOnly.FromDateTime(now.UtcDateTime),   // arrival time; slots are vestigial
-            SlotEndTime = TimeOnly.FromDateTime(now.UtcDateTime),
+            SlotStartTime = arrival,   // walk-in arrival time; slots are vestigial
+            SlotEndTime = arrival,
             Status = BookingStatus.CheckedIn,
             PaymentMode = PaymentMode.PayAtClinic,
             QueueNumber = $"Q-{seq:D3}",
@@ -104,7 +105,7 @@ public class QueueController(ClinicAppDbContext db) : ControllerBase
     [HttpGet]
     public async Task<ActionResult<object>> GetQueue([FromQuery] DateOnly? date, CancellationToken ct)
     {
-        var day = date ?? DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var day = date ?? ClinicApp.Domain.ClinicClock.Today;
         var rows = await db.Bookings.AsNoTracking()
             .Where(b => b.AppointmentDate == day && b.IsWalkIn)
             .Include(b => b.Patient)

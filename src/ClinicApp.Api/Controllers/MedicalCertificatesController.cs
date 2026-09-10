@@ -71,7 +71,7 @@ public class MedicalCertificatesController(ClinicAppDbContext db) : ControllerBa
         }
         m.PatientId = req.PatientId;
         m.DoctorId = req.DoctorId;
-        m.IssueDate = req.IssueDate ?? DateOnly.FromDateTime(now.UtcDateTime);
+        m.IssueDate = req.IssueDate ?? ClinicApp.Domain.ClinicClock.Today;
         m.PatientAddressSnapshot = req.PatientAddressSnapshot;
         m.ExaminedAt = req.ExaminedAt;
         m.ExaminationDateFrom = req.ExaminationDateFrom;
