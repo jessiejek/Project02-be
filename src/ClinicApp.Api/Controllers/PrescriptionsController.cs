@@ -124,6 +124,29 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     }
 
     [Authorize(Roles = "Doctor,Admin")]
+    [HttpPut("prescription-templates/{id:guid}")]
+    public async Task<ActionResult<PrescriptionTemplate>> UpdateTemplate(Guid id, UpsertRxTemplateRequest req, CancellationToken ct)
+    {
+        var t = await db.PrescriptionTemplates.Include(x => x.Items).SingleOrDefaultAsync(x => x.TemplateId == id, ct);
+        if (t is null) return NotFound();
+
+        var now = DateTimeOffset.UtcNow;
+        t.Title = req.Title;
+        t.IsSystemTemplate = req.IsSystemTemplate;
+        t.UpdatedAt = now;
+        db.PrescriptionTemplateItems.RemoveRange(t.Items);
+        foreach (var i in req.Items)
+            db.PrescriptionTemplateItems.Add(new PrescriptionTemplateItem
+            {
+                Id = Guid.NewGuid(), TemplateId = t.TemplateId, MedicineId = i.MedicineId,
+                GenericName = i.GenericName, Dosage = i.Dosage, Quantity = i.Quantity,
+                Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance, CreatedAt = now
+            });
+        await db.SaveChangesAsync(ct);
+        return Ok(await db.PrescriptionTemplates.AsNoTracking().Include(x => x.Items).SingleAsync(x => x.TemplateId == t.TemplateId, ct));
+    }
+
+    [Authorize(Roles = "Doctor,Admin")]
     [HttpDelete("prescription-templates/{id:guid}")]
     public async Task<IActionResult> DeleteTemplate(Guid id, CancellationToken ct)
     {
@@ -150,6 +173,21 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
             Instruction = input.Instruction, CreatedAt = DateTimeOffset.UtcNow
         };
         db.DoctorFavoriteMedicines.Add(f);
+        await db.SaveChangesAsync(ct);
+        return Ok(f);
+    }
+
+    [Authorize(Roles = "Doctor,Admin")]
+    [HttpPut("doctor-favorite-medicines/{id:guid}")]
+    public async Task<ActionResult<DoctorFavoriteMedicine>> UpdateFavorite(Guid id, FavoriteMedicineInput input, CancellationToken ct)
+    {
+        var f = await db.DoctorFavoriteMedicines.SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (f is null) return NotFound();
+        f.MedicineId = input.MedicineId;
+        f.GenericName = input.GenericName;
+        f.Dosage = input.Dosage;
+        f.Quantity = input.Quantity;
+        f.Instruction = input.Instruction;
         await db.SaveChangesAsync(ct);
         return Ok(f);
     }

@@ -34,6 +34,19 @@ public class SoapController(ClinicAppDbContext db) : ControllerBase
         return Ok(p);
     }
 
+    [HttpPut("soap-phrases/{id:guid}")]
+    public async Task<ActionResult<SoapPhrase>> UpdatePhrase(Guid id, SoapPhraseInput input, CancellationToken ct)
+    {
+        var p = await db.SoapPhrases.SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (p is null) return NotFound();
+        p.Field = input.Field;
+        p.Label = input.Label;
+        p.Body = input.Body;
+        p.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Ok(p);
+    }
+
     [HttpDelete("soap-phrases/{id:guid}")]
     public async Task<IActionResult> DeletePhrase(Guid id, CancellationToken ct)
     {
@@ -63,6 +76,23 @@ public class SoapController(ClinicAppDbContext db) : ControllerBase
             Assessment = input.Assessment, Plan = input.Plan, CreatedAt = now, UpdatedAt = now
         };
         db.SoapTemplates.Add(t);
+        await db.SaveChangesAsync(ct);
+        return Ok(t);
+    }
+
+    [HttpPut("soap-templates/{id:guid}")]
+    public async Task<ActionResult<SoapTemplate>> UpdateTemplate(Guid id, SoapTemplateInput input, CancellationToken ct)
+    {
+        var t = await db.SoapTemplates.SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (t is null) return NotFound();
+        t.Title = input.Title;
+        t.IsSystemTemplate = input.IsSystemTemplate;
+        t.ChiefComplaint = input.ChiefComplaint;
+        t.Subjective = input.Subjective;
+        t.Objective = input.Objective;
+        t.Assessment = input.Assessment;
+        t.Plan = input.Plan;
+        t.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return Ok(t);
     }
