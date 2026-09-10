@@ -37,6 +37,8 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
         [FromQuery] Guid? patientId,
         [FromQuery] Guid? doctorId,
         [FromQuery] DateOnly? date,
+        [FromQuery] DateOnly? from,
+        [FromQuery] DateOnly? to,
         [FromQuery] BookingStatus? status,
         CancellationToken ct)
     {
@@ -44,6 +46,8 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
         if (patientId is not null) query = query.Where(b => b.PatientId == patientId);
         if (doctorId is not null) query = query.Where(b => b.DoctorId == doctorId);
         if (date is not null) query = query.Where(b => b.AppointmentDate == date);
+        if (from is not null) query = query.Where(b => b.AppointmentDate >= from);
+        if (to is not null) query = query.Where(b => b.AppointmentDate <= to);
         if (status is not null) query = query.Where(b => b.Status == status);
 
         var bookings = await query.OrderByDescending(b => b.AppointmentDate).ThenBy(b => b.SlotStartTime).ToListAsync(ct);
