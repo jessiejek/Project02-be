@@ -4,6 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Shared-hosting deploy: sites share one IIS app pool, so run out-of-process
+         (the host's GitHub Deploy recommends this). Makes `dotnet publish` stamp
+         hostingModel="outofprocess" into the generated web.config. -->
+    <AspNetCoreHostingModel>OutOfProcess</AspNetCoreHostingModel>
   </PropertyGroup>
 
   <ItemGroup>
