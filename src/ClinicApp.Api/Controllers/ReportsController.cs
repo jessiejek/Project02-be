@@ -10,23 +10,34 @@ namespace ClinicApp.Api.Controllers;
 /// reports/pending-follow-ups, reports/unpaid-completed-visits). Maps to the 4 keyless SQL views
 /// from contract §5.</summary>
 [ApiController]
-[Authorize(Roles = "Admin,Staff,Doctor")]
+[Authorize] // authenticated; per-endpoint role gates below
 [Route("api/reports")]
 public class ReportsController(ClinicAppDbContext db) : ControllerBase
 {
+    // Multiple [Authorize] attributes are AND-ed, so a wider list here would
+    // still be capped by a class-level Roles list — hence the class attr has none
+    // and every endpoint states its own.
+    private const string StaffReports = "Admin,Staff,Doctor";
+
+    /// <summary>Patient-facing too — ratings are shown on the patient doctor
+    /// cards / doctor profile. The other 3 report views stay staff-only.</summary>
     [HttpGet("doctor-ratings")]
+    [Authorize(Roles = StaffReports + ",Patient")]
     public async Task<ActionResult<List<VDoctorRating>>> GetDoctorRatings(CancellationToken ct) =>
         Ok(await db.VDoctorRatings.AsNoTracking().ToListAsync(ct));
 
     [HttpGet("daily-booking-summary")]
+    [Authorize(Roles = StaffReports)]
     public async Task<ActionResult<List<VDailyBookingSummary>>> GetDailyBookingSummary(CancellationToken ct) =>
         Ok(await db.VDailyBookingSummaries.AsNoTracking().ToListAsync(ct));
 
     [HttpGet("unpaid-completed-visits")]
+    [Authorize(Roles = StaffReports)]
     public async Task<ActionResult<List<VUnpaidCompletedVisit>>> GetUnpaidCompletedVisits(CancellationToken ct) =>
         Ok(await db.VUnpaidCompletedVisits.AsNoTracking().ToListAsync(ct));
 
     [HttpGet("pending-follow-ups")]
+    [Authorize(Roles = StaffReports)]
     public async Task<ActionResult<List<VPendingFollowUp>>> GetPendingFollowUps(CancellationToken ct) =>
         Ok(await db.VPendingFollowUps.AsNoTracking().ToListAsync(ct));
 
