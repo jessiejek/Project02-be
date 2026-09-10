@@ -25,6 +25,44 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         return Ok(await query.OrderBy(s => s.FullName).ToListAsync(ct));
     }
 
+    /// <summary>§16.2 — paged + searched staff list. `q` matches name / email;
+    /// `sort` = name | role | status (prefix "-" = descending; default "name").</summary>
+    [Authorize(Roles = "Admin,Staff")]
+    [HttpGet("search")]
+    public async Task<ActionResult<PagedResult<StaffAccount>>> Search(
+        [FromQuery] string? q, [FromQuery] string? role,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 25,
+        [FromQuery] string? sort = "name", CancellationToken ct = default)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = db.StaffAccounts.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(role) && Enum.TryParse<Domain.Enums.StaffRole>(role, out var r))
+            query = query.Where(s => s.Role == r);
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var s = q.Trim();
+            query = query.Where(x => x.FullName.Contains(s) || x.Email.Contains(s));
+        }
+
+        var desc = sort is not null && sort.StartsWith('-');
+        var key = (sort ?? "name").TrimStart('-');
+        query = (key, desc) switch
+        {
+            ("role", false) => query.OrderBy(x => x.Role),
+            ("role", true) => query.OrderByDescending(x => x.Role),
+            ("status", false) => query.OrderBy(x => x.Status),
+            ("status", true) => query.OrderByDescending(x => x.Status),
+            (_, true) => query.OrderByDescending(x => x.FullName),
+            _ => query.OrderBy(x => x.FullName),
+        };
+
+        var total = await query.CountAsync(ct);
+        var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return Ok(new PagedResult<StaffAccount> { Items = items, TotalCount = total, Page = page, PageSize = pageSize });
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<StaffAccount>> GetById(Guid id, CancellationToken ct)
     {

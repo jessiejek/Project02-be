@@ -19,6 +19,42 @@ public class DoctorsController(ClinicAppDbContext db) : ControllerBase
         return Ok(doctors);
     }
 
+    /// <summary>§16.2 — paged + searched doctor list. `q` matches name / specialization /
+    /// license; `sort` = name | specialization (prefix "-" = descending; default "name").</summary>
+    [Authorize(Roles = "Admin")]
+    [HttpGet("search")]
+    public async Task<ActionResult<PagedResult<Doctor>>> Search(
+        [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int pageSize = 25,
+        [FromQuery] string? sort = "name", CancellationToken ct = default)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = db.Doctors.AsNoTracking().Include(d => d.StaffAccount).AsQueryable();
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var s = q.Trim();
+            query = query.Where(d =>
+                (d.StaffAccount != null && d.StaffAccount.FullName.Contains(s)) ||
+                d.Specialization.Contains(s) ||
+                (d.LicenseNumber != null && d.LicenseNumber.Contains(s)));
+        }
+
+        var desc = sort is not null && sort.StartsWith('-');
+        var key = (sort ?? "name").TrimStart('-');
+        query = (key, desc) switch
+        {
+            ("specialization", false) => query.OrderBy(d => d.Specialization),
+            ("specialization", true) => query.OrderByDescending(d => d.Specialization),
+            (_, true) => query.OrderByDescending(d => d.StaffAccount!.FullName),
+            _ => query.OrderBy(d => d.StaffAccount!.FullName),
+        };
+
+        var total = await query.CountAsync(ct);
+        var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return Ok(new PagedResult<Doctor> { Items = items, TotalCount = total, Page = page, PageSize = pageSize });
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Doctor>> GetById(Guid id, CancellationToken ct)
     {

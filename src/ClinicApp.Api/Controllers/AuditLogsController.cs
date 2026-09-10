@@ -26,6 +26,34 @@ public class AuditLogsController(ClinicAppDbContext db) : ControllerBase
         return Ok(await q.OrderByDescending(a => a.PerformedAt).Take(take).ToListAsync(ct));
     }
 
+    /// <summary>§16.2 — paged + searched audit trail for the admin screen.
+    /// `q` matches action / details.</summary>
+    [Authorize(Roles = "Admin,Doctor,Staff")]
+    [HttpGet("search")]
+    public async Task<ActionResult<PagedResult<AuditLog>>> Search(
+        [FromQuery] string? q,
+        [FromQuery] AuditEntityType? entityType,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = db.AuditLogs.AsNoTracking().AsQueryable();
+        if (entityType is not null) query = query.Where(a => a.EntityType == entityType);
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var s = q.Trim();
+            query = query.Where(a => a.Action.Contains(s) || (a.Details != null && a.Details.Contains(s)));
+        }
+
+        var total = await query.CountAsync(ct);
+        var items = await query.OrderByDescending(a => a.PerformedAt)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return Ok(new PagedResult<AuditLog> { Items = items, TotalCount = total, Page = page, PageSize = pageSize });
+    }
+
     /// <summary>Written on consultation amend (contract §10, entity_type = Consultation).</summary>
     [Authorize(Roles = "Doctor,Admin,Staff")]
     [HttpPost]

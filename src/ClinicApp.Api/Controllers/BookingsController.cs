@@ -203,29 +203,43 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
 
     [Authorize(Roles = "Admin,Staff")]
     [HttpGet("staff/today")]
-    public async Task<ActionResult<PagedResult<Booking>>> GetStaffToday([FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default)
+    public async Task<ActionResult<PagedResult<Booking>>> GetStaffToday(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null, CancellationToken ct = default)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
-        var query = WithEmbeds().Where(b => b.AppointmentDate == today).OrderBy(b => b.SlotStartTime);
+        var query = SearchBookings(WithEmbeds().Where(b => b.AppointmentDate == today), q).OrderBy(b => b.SlotStartTime);
         return Ok(await PageAsync(query, page, pageSize, ct));
     }
 
     [Authorize(Roles = "Admin,Staff")]
     [HttpGet("staff/all")]
-    public async Task<ActionResult<PagedResult<Booking>>> GetStaffAll([FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default)
+    public async Task<ActionResult<PagedResult<Booking>>> GetStaffAll(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null, CancellationToken ct = default)
     {
-        var query = WithEmbeds().OrderByDescending(b => b.AppointmentDate);
+        var query = SearchBookings(WithEmbeds(), q).OrderByDescending(b => b.AppointmentDate);
         return Ok(await PageAsync(query, page, pageSize, ct));
     }
 
     [Authorize(Roles = "Admin,Staff")]
     [HttpGet("staff/for-payment")]
-    public async Task<ActionResult<PagedResult<Booking>>> GetStaffForPayment([FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default)
+    public async Task<ActionResult<PagedResult<Booking>>> GetStaffForPayment(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null, CancellationToken ct = default)
     {
-        var query = WithEmbeds()
-            .Where(b => b.Payment != null && b.Payment.Status == PaymentStatus.Unpaid)
+        var query = SearchBookings(
+                WithEmbeds().Where(b => b.Payment != null && b.Payment.Status == PaymentStatus.Unpaid), q)
             .OrderBy(b => b.AppointmentDate);
         return Ok(await PageAsync(query, page, pageSize, ct));
+    }
+
+    /// <summary>§16.2 — `q` matches patient name / code / queue number.</summary>
+    private static IQueryable<Booking> SearchBookings(IQueryable<Booking> query, string? q)
+    {
+        if (string.IsNullOrWhiteSpace(q)) return query;
+        var s = q.Trim();
+        return query.Where(b =>
+            (b.Patient.FirstName + " " + b.Patient.LastName).Contains(s) ||
+            b.Patient.PatientCode.Contains(s) ||
+            (b.QueueNumber != null && b.QueueNumber.Contains(s)));
     }
 
     private async Task<PagedResult<Booking>> PageAsync(IOrderedQueryable<Booking> query, int page, int pageSize, CancellationToken ct)
