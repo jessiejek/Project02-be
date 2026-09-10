@@ -48,6 +48,17 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
         return g is null ? NotFound() : Ok(g);
     }
 
+    [Authorize(Roles = "Doctor,Admin")]
+    [HttpDelete("prescription-groups/{id:guid}")]
+    public async Task<IActionResult> DeleteGroup(Guid id, CancellationToken ct)
+    {
+        var g = await db.PrescriptionGroups.SingleOrDefaultAsync(x => x.GroupId == id, ct);
+        if (g is null) return NotFound();
+        db.PrescriptionGroups.Remove(g); // line items cascade
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
     /// <summary>Upsert the (one) Rx group for a booking + replace its line items.</summary>
     [Authorize(Roles = "Doctor,Admin")]
     [HttpPut("prescription-groups/by-booking/{bookingId:guid}")]
