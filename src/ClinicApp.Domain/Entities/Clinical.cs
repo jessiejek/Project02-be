@@ -135,3 +135,16 @@ public class SoapTemplate : IHasUpdatedAt
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
+
+/// <summary>doctor_diagnosis_templates — a doctor's reusable free-text diagnoses
+/// (§16.8). Picked into the consultation Diagnosis section; managed on
+/// /doctor/templates. Plain text, no ICD coding.</summary>
+public class DoctorDiagnosisTemplate : IHasUpdatedAt
+{
+    public Guid Id { get; set; }
+    public Guid DoctorId { get; set; }
+    public string Label { get; set; } = "";
+    public string Body { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
