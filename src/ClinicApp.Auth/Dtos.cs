@@ -47,7 +47,30 @@ public record FacebookLoginRequest(
     [property: JsonPropertyName("accessToken")] string AccessToken,
     [property: JsonPropertyName("userId")] string UserId);
 
-public record InviteRequest(string Email, [property: JsonPropertyName("fullName")] string FullName, string Role);
+public record InviteRequest(
+    string Email,
+    [property: JsonPropertyName("fullName")] string FullName,
+    string Role,
+    // Only sent when Role == "Doctor": the doctors row + weekly schedule are
+    // created in the same transaction so no half-provisioned doctor is left
+    // behind (this replaces the old FE fan-out in actions/createDoctor.ts).
+    [property: JsonPropertyName("doctor")] DoctorInviteProfile? Doctor = null);
+
+public record DoctorInviteProfile(
+    string Specialization,
+    [property: JsonPropertyName("consultationFee")] decimal ConsultationFee,
+    string? Bio,
+    [property: JsonPropertyName("licenseNumber")] string? LicenseNumber,
+    [property: JsonPropertyName("ptrNumber")] string? PtrNumber,
+    [property: JsonPropertyName("s2Number")] string? S2Number,
+    [property: JsonPropertyName("slotDurationMinutes")] int SlotDurationMinutes,
+    [property: JsonPropertyName("schedule")] IReadOnlyList<DoctorInviteScheduleDay> Schedule);
+
+public record DoctorInviteScheduleDay(
+    [property: JsonPropertyName("dayOfWeek")] short DayOfWeek,
+    [property: JsonPropertyName("isActive")] bool IsActive,
+    [property: JsonPropertyName("startTime")] string StartTime,
+    [property: JsonPropertyName("endTime")] string EndTime);
 
 public class AuthUserDto
 {

@@ -306,6 +306,40 @@ public class AuthController(
             UpdatedAt = now
         });
 
+        // Doctor invites carry the full clinical profile so doctors + doctor_schedules
+        // land in the same SaveChanges — no separate follow-up call, no orphaned row.
+        if (staffRole == StaffRole.Doctor && request.Doctor is { } dp)
+        {
+            db.Doctors.Add(new Doctor
+            {
+                DoctorId = staffId, // shared PK with StaffAccounts.StaffId
+                Specialization = dp.Specialization,
+                ConsultationFee = dp.ConsultationFee,
+                Bio = string.IsNullOrWhiteSpace(dp.Bio) ? null : dp.Bio,
+                LicenseNumber = string.IsNullOrWhiteSpace(dp.LicenseNumber) ? null : dp.LicenseNumber,
+                PtrNumber = string.IsNullOrWhiteSpace(dp.PtrNumber) ? null : dp.PtrNumber,
+                S2Number = string.IsNullOrWhiteSpace(dp.S2Number) ? null : dp.S2Number,
+                SlotDurationMinutes = dp.SlotDurationMinutes,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+
+            foreach (var d in dp.Schedule)
+            {
+                db.DoctorSchedules.Add(new DoctorSchedule
+                {
+                    Id = Guid.NewGuid(),
+                    DoctorId = staffId,
+                    DayOfWeek = d.DayOfWeek,
+                    IsActive = d.IsActive,
+                    StartTime = TimeOnly.Parse(d.StartTime),
+                    EndTime = TimeOnly.Parse(d.EndTime),
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+            }
+        }
+
         await db.SaveChangesAsync(ct);
 
         // TODO: send invite email with a set-password link once SMTP is wired (see forgot-password).
