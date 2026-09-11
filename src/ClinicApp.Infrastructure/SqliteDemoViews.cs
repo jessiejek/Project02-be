@@ -22,7 +22,7 @@ SELECT
   b.doctor_id,
   sa.full_name AS doctor_name,
   b.appointment_date,
-  pay.amount AS amount_due,
+  b.amount_due AS amount_due,
   pay.status AS payment_status
 FROM bookings b
 JOIN patients p ON p.patient_id = b.patient_id
@@ -59,7 +59,7 @@ SELECT
   SUM(CASE WHEN pay.status = 'Paid' THEN 1 ELSE 0 END) AS paid_count,
   SUM(CASE WHEN pay.status = 'Unpaid' THEN 1 ELSE 0 END) AS unpaid_count,
   SUM(CASE WHEN b.status = 'NoShow' THEN 1 ELSE 0 END) AS no_show_count,
-  COALESCE(SUM(CASE WHEN pay.status = 'Paid' THEN pay.amount ELSE 0 END), 0) AS revenue
+  COALESCE(SUM(CASE WHEN pay.status = 'Paid' THEN COALESCE(pay.amount_received, pay.amount) ELSE 0 END), 0) AS revenue
 FROM bookings b
 LEFT JOIN payments pay ON pay.booking_id = b.booking_id
 GROUP BY b.appointment_date;");
