@@ -1780,3 +1780,35 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911093550_Phase94MedicalCertificateTemplates'
+)
+BEGIN
+    CREATE TABLE [medical_certificate_templates] (
+        [id] uniqueidentifier NOT NULL,
+        [doctor_id] uniqueidentifier NOT NULL,
+        [title] nvarchar(max) NOT NULL,
+        [is_system_template] bit NOT NULL,
+        [diagnosis_text] nvarchar(max) NULL,
+        [recommendations] nvarchar(max) NULL,
+        [purpose_exception] nvarchar(max) NULL,
+        [created_at] datetimeoffset NOT NULL,
+        [updated_at] datetimeoffset NOT NULL,
+        CONSTRAINT [pk_medical_certificate_templates] PRIMARY KEY ([id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911093550_Phase94MedicalCertificateTemplates'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([migration_id], [product_version])
+    VALUES (N'20260911093550_Phase94MedicalCertificateTemplates', N'10.0.11');
+END;
+
+COMMIT;
+GO
+

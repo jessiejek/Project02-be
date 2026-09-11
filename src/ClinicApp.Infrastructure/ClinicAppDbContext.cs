@@ -42,6 +42,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     public DbSet<Icd10Code> Icd10Codes => Set<Icd10Code>();
     public DbSet<SoapPhrase> SoapPhrases => Set<SoapPhrase>();
     public DbSet<SoapTemplate> SoapTemplates => Set<SoapTemplate>();
+    public DbSet<MedicalCertificateTemplate> MedicalCertificateTemplates => Set<MedicalCertificateTemplate>();
     public DbSet<DoctorDiagnosisTemplate> DoctorDiagnosisTemplates => Set<DoctorDiagnosisTemplate>();
 
     // Prescriptions
@@ -259,6 +260,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
 
         modelBuilder.Entity<SoapPhrase>(e => e.HasKey(p => p.Id));
         modelBuilder.Entity<SoapTemplate>(e => e.HasKey(t => t.Id));
+        modelBuilder.Entity<MedicalCertificateTemplate>(e => e.HasKey(t => t.Id));
         modelBuilder.Entity<DoctorDiagnosisTemplate>(e =>
         {
             e.HasKey(t => t.Id);

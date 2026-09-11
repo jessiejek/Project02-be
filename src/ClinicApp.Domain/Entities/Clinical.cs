@@ -145,6 +145,23 @@ public class SoapTemplate : IHasUpdatedAt
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+/// <summary>medical_certificate_templates — canned "reason for the cert" text
+/// (e.g. "Fit to Work", "Sick Leave 3 days") a doctor reuses across §16.8
+/// Form 2 issuances. Only the free-text fields that are actually reused;
+/// dates and the patient's address stay per-issuance.</summary>
+public class MedicalCertificateTemplate : IHasUpdatedAt
+{
+    public Guid Id { get; set; }
+    public Guid DoctorId { get; set; }
+    public string Title { get; set; } = "";
+    public bool IsSystemTemplate { get; set; }
+    public string? DiagnosisText { get; set; }
+    public string? Recommendations { get; set; }
+    public string? PurposeException { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 /// <summary>doctor_diagnosis_templates — a doctor's reusable free-text diagnoses
 /// (§16.8). Picked into the consultation Diagnosis section; managed on
 /// /doctor/templates. Plain text, no ICD coding.</summary>
