@@ -46,6 +46,34 @@ dotnet publish "$API_CSPROJ" -c Release -r win-x64 --self-contained false -o "$P
 # Never ship the local Development config to a shared host.
 rm -f "$PUBLISH_DIR/appsettings.Development.json"
 
+# `dotnet publish` regenerates web.config from scratch every time, which wipes
+# any hand-edit made straight to a previous deploy's copy. This host's IIS
+# defaults to Basic Authentication on the site, which 401s every request
+# before it ever reaches the app — anonymousAuthentication must be forced on
+# every single publish, not just the first one, or the next redeploy silently
+# re-breaks the whole site (this happened once; don't let it happen again).
+WEB_CONFIG="$PUBLISH_DIR/web.config"
+if [[ -f "$WEB_CONFIG" ]] && ! grep -q "anonymousAuthentication" "$WEB_CONFIG"; then
+  echo "==> Patching web.config: force anonymousAuthentication on (this host defaults to Basic Auth, which 401s every request)"
+  python3 - "$WEB_CONFIG" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+marker = "</system.webServer>"
+patch = """      <security>
+        <authentication>
+          <anonymousAuthentication enabled="true" />
+          <basicAuthentication enabled="false" />
+        </authentication>
+      </security>
+    </system.webServer>"""
+content = content.replace(marker, patch, 1)
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+fi
+
 echo "==> Published output size:"
 SIZE_BYTES=$(find "$PUBLISH_DIR" -type f -exec stat -f%z {} + | awk '{s+=$1} END{print s+0}')
 SIZE_HUMAN=$(du -sh "$PUBLISH_DIR" | cut -f1)
