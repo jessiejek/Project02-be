@@ -194,4 +194,10 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Keep-warm / uptime ping for shared hosting where the app pool idles out.
+// No DB, no auth, no rate limit — the cheapest possible "is the process up"
+// check. /api/settings remains the "is the DB reachable" smoke check.
+app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }))
+    .DisableRateLimiting();
+
 app.Run();
