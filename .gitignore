@@ -21,3 +21,4 @@ publish-sc/
 !.env.example
 *.PublishSettings
 appsettings.*.local.json
+deploy-credentials.md
