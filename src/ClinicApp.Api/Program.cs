@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using ClinicApp.Api.Hubs;
 using ClinicApp.Api.Middleware;
 using ClinicApp.Auth;
 using ClinicApp.Infrastructure;
@@ -82,9 +83,27 @@ builder.Services.AddAuthentication(options =>
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30)
         };
+        // SignalR's browser transport (WebSockets/SSE) can't attach a custom
+        // Authorization header, so the JS client puts the same bearer token
+        // on the query string instead (accessTokenFactory) — only honor that
+        // for the hub path, never for regular API requests.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
 
 // ── Rate limiting (§17.2) — per-client-IP. A generous global fixed window plus
 // a strict "auth" policy for the credential endpoints (brute-force guard).
@@ -193,6 +212,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<ClinicHub>("/hubs/clinic");
 
 // Keep-warm / uptime ping for shared hosting where the app pool idles out.
 // No DB, no auth, no rate limit — the cheapest possible "is the process up"

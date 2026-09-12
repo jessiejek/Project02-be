@@ -1,8 +1,10 @@
+using ClinicApp.Api.Hubs;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
@@ -14,7 +16,7 @@ public record RefundPaymentRequest(decimal Amount, string Reason);
 [ApiController]
 [Authorize]
 [Route("api/payments")]
-public class PaymentsController(ClinicAppDbContext db) : ControllerBase
+public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) : ControllerBase
 {
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Payment>> GetById(Guid id, CancellationToken ct)
@@ -50,6 +52,12 @@ public class PaymentsController(ClinicAppDbContext db) : ControllerBase
         booking.AmountDue = 0;
 
         await db.SaveChangesAsync(ct);
+        await hub.Clients.Group("staff").SendAsync("PaymentUpdated", new
+        {
+            booking_id = booking.BookingId,
+            payment_id = payment.PaymentId,
+            status = payment.Status.ToString()
+        }, ct);
         return Ok(payment);
     }
 
@@ -69,6 +77,12 @@ public class PaymentsController(ClinicAppDbContext db) : ControllerBase
         booking.AmountDue = 0;
 
         await db.SaveChangesAsync(ct);
+        await hub.Clients.Group("staff").SendAsync("PaymentUpdated", new
+        {
+            booking_id = booking.BookingId,
+            payment_id = payment.PaymentId,
+            status = payment.Status.ToString()
+        }, ct);
         return Ok(payment);
     }
 

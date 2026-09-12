@@ -1,9 +1,11 @@
+using ClinicApp.Api.Hubs;
 using ClinicApp.Domain;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
@@ -23,7 +25,7 @@ public record CheckInWalkInRequest(
 [ApiController]
 [Authorize(Roles = "Admin,Staff,Doctor")]
 [Route("api/queue")]
-public class QueueController(ClinicAppDbContext db) : ControllerBase
+public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) : ControllerBase
 {
     /// <summary>Check a walk-in patient into today's queue. Returns the printable ticket.</summary>
     [Authorize(Roles = "Admin,Staff")]
@@ -85,12 +87,22 @@ public class QueueController(ClinicAppDbContext db) : ControllerBase
         });
         await db.SaveChangesAsync(ct);
 
+        var patientName = $"{patient.FirstName} {patient.LastName}".Trim();
+        await BroadcastAsync("PatientCheckedIn", doctor.DoctorId, new
+        {
+            booking_id = booking.BookingId,
+            doctor_id = doctor.DoctorId,
+            queue_number = booking.QueueNumber,
+            patient_name = patientName,
+            patient_code = patient.PatientCode
+        });
+
         return Ok(new
         {
             booking_id = booking.BookingId,
             queue_number = booking.QueueNumber,
             sequence = seq,
-            patient_name = $"{patient.FirstName} {patient.LastName}".Trim(),
+            patient_name = patientName,
             patient_code = patient.PatientCode,
             doctor_name = doctor.StaffAccount?.FullName ?? "",
             clinic_name = settings.ClinicName,
@@ -159,8 +171,24 @@ public class QueueController(ClinicAppDbContext db) : ControllerBase
         b.Status = status;
         b.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+
+        await BroadcastAsync("QueueUpdated", b.DoctorId, new
+        {
+            booking_id = b.BookingId,
+            doctor_id = b.DoctorId,
+            status = b.Status.ToString()
+        });
+
         return Ok(b);
     }
+
+    /// <summary>Every real-time push goes to "staff" plus the owning doctor's
+    /// own group — one call site instead of repeating both SendAsync calls
+    /// at every mutation.</summary>
+    private Task BroadcastAsync(string @event, Guid doctorId, object payload) =>
+        Task.WhenAll(
+            hub.Clients.Group("staff").SendAsync(@event, payload),
+            hub.Clients.Group($"doctor:{doctorId}").SendAsync(@event, payload));
 
     /// <summary>Next FCFS sequence for the day — MAX(existing Q-NNN) + 1, so a
     /// cancelled entry never causes a duplicate.</summary>
