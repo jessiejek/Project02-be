@@ -52,7 +52,7 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         booking.AmountDue = 0;
 
         await db.SaveChangesAsync(ct);
-        await hub.Clients.Group("staff").SendAsync("PaymentUpdated", new
+        await BroadcastAsync(booking.DoctorId, new
         {
             booking_id = booking.BookingId,
             payment_id = payment.PaymentId,
@@ -77,7 +77,7 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         booking.AmountDue = 0;
 
         await db.SaveChangesAsync(ct);
-        await hub.Clients.Group("staff").SendAsync("PaymentUpdated", new
+        await BroadcastAsync(booking.DoctorId, new
         {
             booking_id = booking.BookingId,
             payment_id = payment.PaymentId,
@@ -85,6 +85,15 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         }, ct);
         return Ok(payment);
     }
+
+    /// <summary>Every real-time push goes to "staff" plus the owning doctor's
+    /// own group — PaymentUpdated only ever reached "staff" before, so a
+    /// doctor's dashboard/appointments list never got the live push and sat
+    /// on stale "Unpaid" until its own fallback poll caught up.</summary>
+    private Task BroadcastAsync(Guid doctorId, object payload, CancellationToken ct) =>
+        Task.WhenAll(
+            hub.Clients.Group("staff").SendAsync("PaymentUpdated", payload, ct),
+            hub.Clients.Group($"doctor:{doctorId}").SendAsync("PaymentUpdated", payload, ct));
 
     [Authorize(Roles = "Admin")]
     [HttpPost("{id:guid}/refund")]
