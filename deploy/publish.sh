@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # deploy/publish.sh — build + FTP-upload the ClinicApp.Api backend.
 #
+# Runs two ways:
+#   1. By hand, from your own shell, with the env vars below exported first.
+#   2. Automatically on every push to main, via
+#      .github/workflows/deploy-backend.yml (a macOS runner, to match this
+#      script's BSD `stat` usage) — FTP_HOST/FTP_USER/FTP_PASS there come
+#      from this repo's GitHub Secrets, never from a person's shell or a
+#      chat. That's the path to prefer once it's set up: push to main IS
+#      the deploy, instead of "push, then remember to also run this."
+#
 # Framework-dependent, win-x64 (the host has the .NET 10 ASP.NET Core runtime
 # already; this is NOT self-contained — see Task 2/4 discussion, a
 # self-contained build would waste a large share of the 1 GB disk quota).

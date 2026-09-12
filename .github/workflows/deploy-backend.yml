@@ -1,0 +1,41 @@
+name: Deploy backend
+
+# Runs the exact same deploy/publish.sh a human would run by hand, on GitHub's
+# runner instead of your laptop — so "push to main" is the deploy, not
+# "push to main, then remember to also run the FTP script." The FTP
+# host/user/password live only in this repo's GitHub Secrets (Settings ->
+# Secrets and variables -> Actions), never in code, never in chat, never on
+# anyone's local shell history.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {} # lets you re-trigger a deploy without a new commit
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false # never let two FTP uploads race each other
+
+jobs:
+  deploy:
+    # publish.sh uses BSD `stat -f%z` (macOS syntax, not GNU/Linux) to report
+    # publish size — matching the OS it was written and hand-tested on avoids
+    # auditing every command in that script for Linux portability.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # publish.sh reads full git history for the commit sha / dirty check
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish + FTP deploy
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_PORT: ${{ vars.FTP_PORT }}
+          FTP_REMOTE_DIR: ${{ vars.FTP_REMOTE_DIR }}
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+        run: bash deploy/publish.sh
