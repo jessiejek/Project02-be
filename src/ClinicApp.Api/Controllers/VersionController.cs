@@ -21,10 +21,18 @@ public class VersionController(ClinicAppDbContext db, IWebHostEnvironment env) :
     [HttpGet]
     public async Task<ActionResult<object>> Get(CancellationToken ct)
     {
+        // Line 1: commit count (the "version number" — goes up by one every
+        // commit). Line 2: that commit's own timestamp, ISO-8601 — "the time
+        // that version was pushed," not whenever this publish happened to run.
         var versionFile = Path.Combine(env.ContentRootPath, "version.txt");
-        var commit = System.IO.File.Exists(versionFile)
-            ? (await System.IO.File.ReadAllTextAsync(versionFile, ct)).Trim()
-            : "unknown";
+        var version = "?";
+        string? pushedAt = null;
+        if (System.IO.File.Exists(versionFile))
+        {
+            var lines = await System.IO.File.ReadAllLinesAsync(versionFile, ct);
+            if (lines.Length > 0) version = lines[0].Trim();
+            if (lines.Length > 1) pushedAt = lines[1].Trim();
+        }
 
         bool dbConnected;
         string? dbMigration = null;
@@ -48,7 +56,8 @@ public class VersionController(ClinicAppDbContext db, IWebHostEnvironment env) :
 
         return Ok(new
         {
-            commit,
+            version,
+            pushed_at = pushedAt,
             environment = env.EnvironmentName,
             db_connected = dbConnected,
             db_migration = dbMigration

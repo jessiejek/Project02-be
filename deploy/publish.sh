@@ -55,17 +55,21 @@ dotnet publish "$API_CSPROJ" -c Release -r win-x64 --self-contained false -o "$P
 # Never ship the local Development config to a shared host.
 rm -f "$PUBLISH_DIR/appsettings.Development.json"
 
-# No CI on this host to inject a commit SHA the way Vercel does for the
-# frontend — bake it into the publish output instead. GET /api/version
-# reads this back so "is this deploy actually live" is a page load, not a
-# guess. Uncommitted local changes get a "+dirty" suffix so a publish run
-# from a messy working tree is visibly not a clean release build.
-GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+# No CI-injected build number on this host — bake one into the publish
+# output instead. GET /api/version reads this back so "is this deploy
+# actually live" is a page load, not a guess. The version number is total
+# commit count (goes up by one every commit, no manual bumping); the
+# timestamp is that commit's own date ("the time that version was pushed"),
+# not the build wall-clock. Uncommitted local changes get a "+dirty" suffix
+# on the count so a publish run from a messy working tree is visibly not a
+# clean release build.
+GIT_COUNT="$(git -C "$REPO_ROOT" rev-list --count HEAD)"
+GIT_COMMIT_TIME="$(git -C "$REPO_ROOT" log -1 --format=%cI)"
 if ! git -C "$REPO_ROOT" diff --quiet || ! git -C "$REPO_ROOT" diff --cached --quiet; then
-  GIT_SHA="${GIT_SHA}+dirty"
+  GIT_COUNT="${GIT_COUNT}+dirty"
 fi
-echo "$GIT_SHA" > "$PUBLISH_DIR/version.txt"
-echo "==> Baked version.txt: $GIT_SHA"
+printf '%s\n%s\n' "$GIT_COUNT" "$GIT_COMMIT_TIME" > "$PUBLISH_DIR/version.txt"
+echo "==> Baked version.txt: $GIT_COUNT @ $GIT_COMMIT_TIME"
 
 # `dotnet publish` regenerates web.config from scratch every time, which wipes
 # any hand-edit made straight to a previous deploy's copy. This host's IIS
