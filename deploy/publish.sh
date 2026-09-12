@@ -46,6 +46,18 @@ dotnet publish "$API_CSPROJ" -c Release -r win-x64 --self-contained false -o "$P
 # Never ship the local Development config to a shared host.
 rm -f "$PUBLISH_DIR/appsettings.Development.json"
 
+# No CI on this host to inject a commit SHA the way Vercel does for the
+# frontend — bake it into the publish output instead. GET /api/version
+# reads this back so "is this deploy actually live" is a page load, not a
+# guess. Uncommitted local changes get a "+dirty" suffix so a publish run
+# from a messy working tree is visibly not a clean release build.
+GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+if ! git -C "$REPO_ROOT" diff --quiet || ! git -C "$REPO_ROOT" diff --cached --quiet; then
+  GIT_SHA="${GIT_SHA}+dirty"
+fi
+echo "$GIT_SHA" > "$PUBLISH_DIR/version.txt"
+echo "==> Baked version.txt: $GIT_SHA"
+
 # `dotnet publish` regenerates web.config from scratch every time, which wipes
 # any hand-edit made straight to a previous deploy's copy. This host's IIS
 # defaults to Basic Authentication on the site, which 401s every request
