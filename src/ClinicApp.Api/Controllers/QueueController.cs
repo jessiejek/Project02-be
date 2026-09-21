@@ -1,3 +1,4 @@
+using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Hubs;
 using ClinicApp.Domain;
 using ClinicApp.Domain.Entities;
@@ -16,6 +17,8 @@ public record CheckInWalkInRequest(
     bool? MedCertRequested,
     string? DiscountCategory,   // 'Senior' | 'PWD' | null
     string? Notes);
+
+public record CancelQueueEntryRequest(string? Reason);
 
 /// <summary>§16.3 — manual walk-in FCFS queue. Replaces the appointment-slot
 /// model entirely: one doctor, no slots, patients are checked in in arrival
@@ -165,6 +168,44 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
         if (b.Status != BookingStatus.Pending)
             return BadRequest(new { message = "Only a pending online booking can be checked in." });
         return await SetStatus(bookingId, BookingStatus.CheckedIn, ct);
+    }
+
+    /// <summary>Front desk cancels a booking that hasn't been seen yet (Pending / CheckedIn /
+    /// OnHold) — e.g. the patient left or changed their mind after checking in. A reason is
+    /// required for the audit trail. The row is kept as Cancelled (never deleted), and a booking
+    /// that's already been paid is refused so money can't silently go missing.</summary>
+    [Authorize(Roles = "Admin,Staff")]
+    [HttpPut("{bookingId:guid}/cancel")]
+    public async Task<IActionResult> CancelEntry(Guid bookingId, CancelQueueEntryRequest req, CancellationToken ct)
+    {
+        var reason = req.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            return BadRequest(new { message = "A cancellation reason is required." });
+
+        var b = await db.Bookings.Include(x => x.Payment).SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
+        if (b is null) return NotFound();
+        if (b.Status is not (BookingStatus.Pending or BookingStatus.CheckedIn or BookingStatus.OnHold))
+            return BadRequest(new { message = "Only a booking that hasn't been seen yet can be cancelled." });
+        if (b.Payment?.Status == PaymentStatus.Paid)
+            return BadRequest(new { message = "This booking has already been paid. Refund it before cancelling." });
+
+        var oldStatus = b.Status;
+        var userId = Guid.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : (Guid?)null;
+        b.Status = BookingStatus.Cancelled;
+        b.CancellationReason = reason;
+        b.CancelledByUserId = userId;
+        b.UpdatedAt = DateTimeOffset.UtcNow;
+        AuditLogWriter.Add(db, AuditEntityType.Booking, b.BookingId, "Cancelled (staff)", userId,
+            $"Status: {oldStatus} → Cancelled; Queue: {b.QueueNumber}; Reason: {reason}");
+        await db.SaveChangesAsync(ct);
+
+        await BroadcastAsync("QueueUpdated", b.DoctorId, new
+        {
+            booking_id = b.BookingId,
+            doctor_id = b.DoctorId,
+            status = b.Status.ToString()
+        });
+        return Ok(new { booking_id = b.BookingId, status = b.Status.ToString() });
     }
 
     [HttpPut("{bookingId:guid}/call")]
