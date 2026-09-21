@@ -52,6 +52,15 @@ public class AuthController(
             return Conflict(new { message = "An account with this email already exists." });
         }
 
+        if (request.DateOfBirth is not { } dob || dob > ClinicApp.Domain.ClinicClock.Today || dob.Year < 1900)
+        {
+            return BadRequest(new { message = "A valid date of birth is required." });
+        }
+        if (!Enum.TryParse<SexType>(request.Sex, ignoreCase: true, out var sex) || !Enum.IsDefined(sex))
+        {
+            return BadRequest(new { message = "Sex must be Male or Female." });
+        }
+
         var now = DateTimeOffset.UtcNow;
         var user = new User { Id = Guid.NewGuid(), Email = email, EmailConfirmed = false, CreatedAt = now };
         user.PasswordHash = passwordHasher.Hash(user, request.Password);
@@ -68,8 +77,9 @@ public class AuthController(
             FirstName = request.FirstName.Trim(),
             MiddleName = string.IsNullOrWhiteSpace(request.MiddleName) ? null : request.MiddleName.Trim(),
             LastName = request.LastName.Trim(),
-            DateOfBirth = DateOnly.FromDateTime(now.Date), // TODO: FE register form doesn't collect DOB yet — placeholder until it does.
-            Sex = SexType.Female, // TODO: same — no sex field on the register form today.
+            DateOfBirth = dob,
+            Sex = sex,
+            ContactNumber = string.IsNullOrWhiteSpace(request.ContactNumber) ? null : request.ContactNumber.Trim(),
             Email = email,
             IsGuest = false,
             IsEmailVerified = false,

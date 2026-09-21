@@ -15,7 +15,10 @@ public record RegisterRequest(
     [property: JsonPropertyName("middleName")] string? MiddleName,
     [property: JsonPropertyName("lastName")] string LastName,
     string Email,
-    string Password);
+    string Password,
+    [property: JsonPropertyName("dateOfBirth")] DateOnly? DateOfBirth,
+    string? Sex,
+    [property: JsonPropertyName("contactNumber")] string? ContactNumber);
 
 public record RefreshTokenRequest([property: JsonPropertyName("refreshToken")] string RefreshToken);
 
