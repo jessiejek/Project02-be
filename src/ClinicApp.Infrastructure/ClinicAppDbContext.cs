@@ -31,6 +31,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     public DbSet<BookingService> BookingServices => Set<BookingService>();
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<Review> Reviews => Set<Review>();
+    public DbSet<QueueCounter> QueueCounters => Set<QueueCounter>();
 
     // Clinical
     public DbSet<Consultation> Consultations => Set<Consultation>();
@@ -209,6 +210,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         });
 
         modelBuilder.Entity<Review>(e => e.HasKey(r => r.ReviewId));
+        modelBuilder.Entity<QueueCounter>(e => e.HasKey(c => c.Date));
 
         // ── Clinical ────────────────────────────────────────────────────
         modelBuilder.Entity<Consultation>(e =>

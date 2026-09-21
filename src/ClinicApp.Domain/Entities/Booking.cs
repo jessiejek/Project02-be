@@ -33,6 +33,10 @@ public class Booking : IHasUpdatedAt
     public Guid? CancelledByUserId { get; set; }
     public string? CancellationReason { get; set; }
     public string? Notes { get; set; }
+    /// <summary>Who created this booking — the staff account for walk-ins, or the
+    /// patient's own user for self-service bookings. Null for rows created before
+    /// this column existed.</summary>
+    public Guid? CreatedByUserId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
@@ -80,6 +84,15 @@ public class Payment : IHasUpdatedAt
     public DateTimeOffset UpdatedAt { get; set; }
 
     [JsonIgnore] public Booking Booking { get; set; } = null!;
+}
+
+/// <summary>Per-day FCFS sequence backing `bookings.queue_number` (§16.3). One row per
+/// calendar day; `Value` is incremented via optimistic concurrency (see QueueController)
+/// so walk-in check-ins and online bookings never race for the same number.</summary>
+public class QueueCounter
+{
+    public DateOnly Date { get; set; }
+    public int Value { get; set; }
 }
 
 public class Review

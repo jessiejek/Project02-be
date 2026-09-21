@@ -4,6 +4,7 @@ using ClinicApp.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClinicApp.Infrastructure.Migrations
 {
     [DbContext(typeof(ClinicAppDbContext))]
-    partial class ClinicAppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260913115727_Phase96BookingCreatedBy")]
+    partial class Phase96BookingCreatedBy
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2251,22 +2254,6 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasName("pk_profiles");
 
                     b.ToTable("profiles", (string)null);
-                });
-
-            modelBuilder.Entity("ClinicApp.Domain.Entities.QueueCounter", b =>
-                {
-                    b.Property<DateOnly>("Date")
-                        .HasColumnType("date")
-                        .HasColumnName("date");
-
-                    b.Property<int>("Value")
-                        .HasColumnType("int")
-                        .HasColumnName("value");
-
-                    b.HasKey("Date")
-                        .HasName("pk_queue_counters");
-
-                    b.ToTable("queue_counters", (string)null);
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.Review", b =>

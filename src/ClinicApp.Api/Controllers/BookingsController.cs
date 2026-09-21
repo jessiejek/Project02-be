@@ -1,3 +1,4 @@
+using ClinicApp.Api.Auditing;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -19,6 +20,8 @@ public record CreateBookingRequest(
     string? Notes);
 
 public record UpdateBookingStatusRequest(BookingStatus Status, string? Reason);
+
+public record CreatePatientBookingRequest(DateOnly? AppointmentDate, VisitType? VisitType, string? Notes);
 
 [ApiController]
 [Authorize]
@@ -61,6 +64,11 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
         return booking is null ? NotFound() : Ok(booking);
     }
 
+    /// <summary>Admin/Staff only — this trusts `request.PatientId` from the body, which is
+    /// safe only because callers are staff booking on a patient's behalf. Patients book
+    /// themselves via `POST /api/bookings/book` instead, which locks the patient ID to the
+    /// caller and doesn't accept an arbitrary doctor/service/slot payload.</summary>
+    [Authorize(Roles = "Admin,Staff")]
     [HttpPost]
     public async Task<ActionResult<Booking>> Create(CreateBookingRequest request, CancellationToken ct)
     {
@@ -83,12 +91,13 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
             SlotEndTime = request.SlotEndTime,
             Status = request.IsWalkIn ? BookingStatus.CheckedIn : BookingStatus.Pending,
             PaymentMode = request.PaymentMode,
-            QueueNumber = await NextQueueNumberAsync(request.DoctorId, request.AppointmentDate, ct),
+            QueueNumber = await QueueSequencer.NextAsync(db, request.AppointmentDate, ct),
             ConsultationFeeSnapshot = doctor.ConsultationFee,
             TotalFee = totalFee,
             AmountDue = totalFee,
             IsWalkIn = request.IsWalkIn,
             Notes = request.Notes,
+            CreatedByUserId = CurrentUserId(),
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -109,6 +118,11 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
             UpdatedAt = now
         });
 
+        AuditLogWriter.Add(db, AuditEntityType.Booking, booking.BookingId,
+            request.IsWalkIn ? "Booked (walk-in)" : "Booked",
+            booking.CreatedByUserId,
+            $"Doctor: {doctor.DoctorId}; Date: {booking.AppointmentDate:yyyy-MM-dd} {booking.SlotStartTime}; Fee: {totalFee:0.00}");
+
         await db.SaveChangesAsync(ct);
 
         var created = await WithEmbeds().SingleAsync(b => b.BookingId == booking.BookingId, ct);
@@ -122,12 +136,20 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
         var booking = await db.Bookings.SingleOrDefaultAsync(b => b.BookingId == id, ct);
         if (booking is null) return NotFound();
 
+        var oldStatus = booking.Status;
         booking.Status = request.Status;
         if (request.Status == BookingStatus.Cancelled)
         {
             booking.CancellationReason = request.Reason;
             booking.CancelledByUserId = CurrentUserId();
         }
+        booking.UpdatedAt = DateTimeOffset.UtcNow;
+
+        var userId = CurrentUserId();
+        var details = request.Status == BookingStatus.Cancelled && !string.IsNullOrWhiteSpace(request.Reason)
+            ? $"Status: {oldStatus} → {request.Status}; Reason: {request.Reason}"
+            : $"Status: {oldStatus} → {request.Status}";
+        AuditLogWriter.Add(db, AuditEntityType.Booking, booking.BookingId, request.Status.ToString(), userId, details);
 
         await db.SaveChangesAsync(ct);
         return Ok(booking);
@@ -149,6 +171,78 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
 
         var query = WithEmbeds().Where(b => b.PatientId == patientId).OrderByDescending(b => b.AppointmentDate);
         return Ok(await PageAsync(query, page, pageSize, ct));
+    }
+
+    /// <summary>Online self-booking (§16.3 hybrid queue): a patient joins the same per-day
+    /// FCFS queue walk-ins use, without visiting the clinic first. No slot picker, no
+    /// capacity cap — booking just reserves a `queue_number` in creation order, same as a
+    /// walk-in reserves one at check-in; whichever happens first gets the earlier number.
+    /// The patient still has to physically check in on arrival (Pending → CheckedIn), same
+    /// as today's flow — this only replaces "get your number from the front desk" with
+    /// "get it from your phone."</summary>
+    [Authorize(Roles = "Patient")]
+    [HttpPost("book")]
+    public async Task<ActionResult<Booking>> BookOnline(CreatePatientBookingRequest request, CancellationToken ct)
+    {
+        var patientId = await CurrentPatientIdAsync(ct);
+        if (patientId is null) return Forbid();
+
+        var doctor = await db.Doctors.OrderBy(d => d.DoctorId).FirstOrDefaultAsync(ct); // one doctor, same as QueueController
+        if (doctor is null) return BadRequest(new { message = "No doctor configured." });
+
+        var settings = await db.ClinicSettings.SingleOrDefaultAsync(s => s.Id == 1, ct);
+        if (settings is null) return BadRequest(new { message = "Clinic settings missing." });
+
+        var date = request.AppointmentDate ?? ClinicApp.Domain.ClinicClock.Today;
+        if (date < ClinicApp.Domain.ClinicClock.Today)
+        {
+            return BadRequest(new { message = "Cannot book a past date." });
+        }
+
+        var visitType = request.VisitType ?? VisitType.New;
+        var fee = ClinicApp.Domain.ClinicFees.Compute(settings, visitType, false, null);
+        var now = DateTimeOffset.UtcNow;
+
+        var booking = new Booking
+        {
+            BookingId = Guid.NewGuid(),
+            PatientId = patientId.Value,
+            DoctorId = doctor.DoctorId,
+            AppointmentDate = date,
+            SlotStartTime = default,
+            SlotEndTime = default,
+            Status = BookingStatus.Pending,
+            PaymentMode = PaymentMode.PayAtClinic,
+            QueueNumber = await QueueSequencer.NextAsync(db, date, ct),
+            VisitType = visitType,
+            ConsultationFeeSnapshot = fee.Subtotal,
+            TotalFee = fee.Total,
+            AmountDue = fee.Total,
+            IsWalkIn = false,
+            Notes = request.Notes,
+            CreatedByUserId = CurrentUserId(),
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        db.Bookings.Add(booking);
+        db.Payments.Add(new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            BookingId = booking.BookingId,
+            Amount = fee.Total,
+            Status = PaymentStatus.Unpaid,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        AuditLogWriter.Add(db, AuditEntityType.Booking, booking.BookingId, "Booked (online)",
+            booking.CreatedByUserId, $"Date: {date:yyyy-MM-dd}; Queue: {booking.QueueNumber}; Fee: {fee.Total:0.00}");
+
+        await db.SaveChangesAsync(ct);
+
+        var created = await WithEmbeds().SingleAsync(b => b.BookingId == booking.BookingId, ct);
+        return CreatedAtAction(nameof(GetById), new { id = booking.BookingId }, created);
     }
 
     /// <summary>The logged-in doctor's bookings for today.</summary>
@@ -269,13 +363,6 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
         var userId = CurrentUserId();
         if (userId is null) return null;
         return await db.StaffAccounts.Where(s => s.UserId == userId).Select(s => (Guid?)s.StaffId).SingleOrDefaultAsync(ct);
-    }
-
-    private async Task<string> NextQueueNumberAsync(Guid doctorId, DateOnly date, CancellationToken ct)
-    {
-        // Count-based queue number per plan §8 (BookingsController: "queue number (count-based)").
-        var countToday = await db.Bookings.CountAsync(b => b.DoctorId == doctorId && b.AppointmentDate == date, ct);
-        return $"Q-{countToday + 1:D3}";
     }
 
     private Guid? CurrentUserId()

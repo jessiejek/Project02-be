@@ -51,7 +51,7 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
         var medCert = req.MedCertRequested ?? false;
         var fee = ClinicFees.Compute(settings, visitType, medCert, discount);
 
-        var seq = await NextQueueSeqAsync(today, ct);
+        var queueNumber = await QueueSequencer.NextAsync(db, today, ct);
         var booking = new Booking
         {
             BookingId = Guid.NewGuid(),
@@ -62,7 +62,7 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
             SlotEndTime = arrival,
             Status = BookingStatus.CheckedIn,
             PaymentMode = PaymentMode.PayAtClinic,
-            QueueNumber = $"Q-{seq:D3}",
+            QueueNumber = queueNumber,
             VisitType = visitType,
             MedCertRequested = medCert,
             DiscountCategory = discount,
@@ -101,7 +101,7 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
         {
             booking_id = booking.BookingId,
             queue_number = booking.QueueNumber,
-            sequence = seq,
+            sequence = int.Parse(new string(queueNumber.Where(char.IsDigit).ToArray())),
             patient_name = patientName,
             patient_code = patient.PatientCode,
             doctor_name = doctor.StaffAccount?.FullName ?? "",
@@ -119,7 +119,8 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
     {
         var day = date ?? ClinicApp.Domain.ClinicClock.Today;
         var rows = await db.Bookings.AsNoTracking()
-            .Where(b => b.AppointmentDate == day && b.IsWalkIn)
+            .Where(b => b.AppointmentDate == day && b.QueueNumber != null
+                && b.Status != BookingStatus.Cancelled && b.Status != BookingStatus.Expired)
             .Include(b => b.Patient)
             .OrderBy(b => b.CreatedAt)
             .ToListAsync(ct);
@@ -134,7 +135,8 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
             status = b.Status.ToString(),
             visit_type = b.VisitType.ToString(),
             amount_due = b.AmountDue,
-            checked_in_at = b.CreatedAt
+            checked_in_at = b.CreatedAt,
+            is_walk_in = b.IsWalkIn
         }).ToList();
 
         return Ok(new
@@ -142,6 +144,7 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
             date = day,
             summary = new
             {
+                booked = rows.Count(b => b.Status == BookingStatus.Pending),
                 waiting = rows.Count(b => b.Status is BookingStatus.CheckedIn or BookingStatus.OnHold),
                 in_progress = rows.Count(b => b.Status == BookingStatus.InProgress),
                 completed = rows.Count(b => b.Status == BookingStatus.Completed),
@@ -150,6 +153,18 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
             },
             items
         });
+    }
+
+    /// <summary>Front desk marks an online booking as arrived (Pending → CheckedIn).</summary>
+    [Authorize(Roles = "Admin,Staff")]
+    [HttpPut("{bookingId:guid}/check-in")]
+    public async Task<IActionResult> CheckInBooked(Guid bookingId, CancellationToken ct)
+    {
+        var b = await db.Bookings.SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
+        if (b is null) return NotFound();
+        if (b.Status != BookingStatus.Pending)
+            return BadRequest(new { message = "Only a pending online booking can be checked in." });
+        return await SetStatus(bookingId, BookingStatus.CheckedIn, ct);
     }
 
     [HttpPut("{bookingId:guid}/call")]
@@ -189,21 +204,4 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
         Task.WhenAll(
             hub.Clients.Group("staff").SendAsync(@event, payload),
             hub.Clients.Group($"doctor:{doctorId}").SendAsync(@event, payload));
-
-    /// <summary>Next FCFS sequence for the day — MAX(existing Q-NNN) + 1, so a
-    /// cancelled entry never causes a duplicate.</summary>
-    private async Task<int> NextQueueSeqAsync(DateOnly day, CancellationToken ct)
-    {
-        var numbers = await db.Bookings.AsNoTracking()
-            .Where(b => b.AppointmentDate == day && b.QueueNumber != null)
-            .Select(b => b.QueueNumber!)
-            .ToListAsync(ct);
-        var max = 0;
-        foreach (var n in numbers)
-        {
-            var digits = new string(n.Where(char.IsDigit).ToArray());
-            if (int.TryParse(digits, out var v) && v > max) max = v;
-        }
-        return max + 1;
-    }
 }
