@@ -101,6 +101,15 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         configurationBuilder.Properties<AuditEntityType>().HaveConversion<string>();
         configurationBuilder.Properties<FollowUpStatus>().HaveConversion<string>();
 
+        // SQLite (the zero-infra dev/demo provider and the integration-test provider) cannot
+        // ORDER BY a DateTimeOffset column. Store them as sortable binary there; SQL Server keeps
+        // its native datetimeoffset. No effect on the production provider.
+        if (Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite")
+        {
+            configurationBuilder.Properties<DateTimeOffset>()
+                .HaveConversion<Microsoft.EntityFrameworkCore.Storage.ValueConversion.DateTimeOffsetToBinaryConverter>();
+        }
+
         // Sensible default column type for money columns; override per-property below only
         // where the contract needs something different (none currently do).
         configurationBuilder.Properties<decimal>().HaveColumnType("decimal(18,2)");

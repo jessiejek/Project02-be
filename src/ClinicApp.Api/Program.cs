@@ -103,6 +103,7 @@ builder.Services.AddAuthentication(options =>
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddScoped<ClinicApp.Api.Security.ActorResolver>();
 builder.Services.AddSignalR();
 
 // ── Rate limiting (§17.2) — per-client-IP. A generous global fixed window plus
@@ -140,7 +141,7 @@ builder.Services.AddSingleton(sp =>
     var config = sp.GetRequiredService<IConfiguration>();
     return new FileStorageOptions
     {
-        RootPath = Path.Combine(env.ContentRootPath, "App_Data", "uploads"),
+        RootPath = config["FileStorage:RootPath"] ?? Path.Combine(env.ContentRootPath, "App_Data", "uploads"),
         PublicPathPrefix = config["FileStorage:PublicPathPrefix"] ?? "/uploads",
         MaxFileSizeBytes = config.GetValue<long?>("FileStorage:MaxFileSizeBytes") ?? 10 * 1024 * 1024
     };
@@ -197,14 +198,10 @@ app.UseMiddleware<RequestContextMiddleware>();
 
 app.UseHttpsRedirection();
 
-// Serve uploaded files (patient documents / lab results) from App_Data/uploads.
-var uploadsRoot = Path.Combine(app.Environment.ContentRootPath, "App_Data", "uploads");
-Directory.CreateDirectory(uploadsRoot);
-app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
-{
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsRoot),
-    RequestPath = "/uploads"
-});
+// Uploaded patient documents / lab results are PHI: they are NOT mounted as static
+// files. They are streamed only by the authorized `GET /api/patient-documents/{id}/file`
+// and `GET /api/patient-lab-results/{id}/file` endpoints (own-patient or staff-like).
+Directory.CreateDirectory(app.Services.GetRequiredService<FileStorageOptions>().RootPath);
 
 app.UseCors();
 app.UseRateLimiter();
@@ -221,3 +218,6 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTimeOffse
     .DisableRateLimiting();
 
 app.Run();
+
+/// <summary>Exposes the entry point to the integration test project (WebApplicationFactory).</summary>
+public partial class Program;

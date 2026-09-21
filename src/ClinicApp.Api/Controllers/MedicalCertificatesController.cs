@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -25,12 +26,20 @@ public record UpsertMedicalCertificateRequest(
 [ApiController]
 [Authorize]
 [Route("api/medical-certificates")]
-public class MedicalCertificatesController(ClinicAppDbContext db) : ControllerBase
+public class MedicalCertificatesController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<MedicalCertificate>>> GetAll(
         [FromQuery] Guid? patientId, [FromQuery] Guid? doctorId, [FromQuery] Guid? consultationId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsPatient)
+        {
+            if (actor.PatientId is null || (patientId is not null && patientId != actor.PatientId)) return Forbid();
+            patientId = actor.PatientId;
+        }
+        else if (!actor.IsStaffLike) return Forbid();
+
         var q = db.MedicalCertificates.AsNoTracking().AsQueryable();
         if (patientId is not null) q = q.Where(m => m.PatientId == patientId);
         if (doctorId is not null) q = q.Where(m => m.DoctorId == doctorId);
@@ -42,7 +51,8 @@ public class MedicalCertificatesController(ClinicAppDbContext db) : ControllerBa
     public async Task<ActionResult<MedicalCertificate>> GetByConsultation(Guid consultationId, CancellationToken ct)
     {
         var m = await db.MedicalCertificates.AsNoTracking().SingleOrDefaultAsync(x => x.ConsultationId == consultationId, ct);
-        return m is null ? NotFound() : Ok(m);
+        if (m is null) return NotFound();
+        return (await actors.ResolveAsync(User, ct)).CanAccessPatient(m.PatientId) ? Ok(m) : NotFound();
     }
 
     [HttpGet("by-booking/{bookingId:guid}")]
@@ -54,7 +64,8 @@ public class MedicalCertificatesController(ClinicAppDbContext db) : ControllerBa
             .SingleOrDefaultAsync(ct);
         if (consultationId is null) return NotFound();
         var m = await db.MedicalCertificates.AsNoTracking().SingleOrDefaultAsync(x => x.ConsultationId == consultationId, ct);
-        return m is null ? NotFound() : Ok(m);
+        if (m is null) return NotFound();
+        return (await actors.ResolveAsync(User, ct)).CanAccessPatient(m.PatientId) ? Ok(m) : NotFound();
     }
 
     [Authorize(Roles = "Doctor,Admin")]
@@ -62,6 +73,13 @@ public class MedicalCertificatesController(ClinicAppDbContext db) : ControllerBa
     public async Task<ActionResult<MedicalCertificate>> UpsertByConsultation(
         Guid consultationId, UpsertMedicalCertificateRequest req, CancellationToken ct)
     {
+        // Patient / doctor come from the consultation; a doctor only writes their own.
+        var consult = await db.Consultations.AsNoTracking().SingleOrDefaultAsync(c => c.ConsultationId == consultationId, ct);
+        if (consult is null) return NotFound(new { message = "Consultation not found." });
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(consult.DoctorId)) return Forbid();
+        if (req.PatientId != consult.PatientId || req.DoctorId != consult.DoctorId)
+            return BadRequest(new { message = "Patient / doctor do not match the consultation." });
+
         var now = DateTimeOffset.UtcNow;
         var m = await db.MedicalCertificates.SingleOrDefaultAsync(x => x.ConsultationId == consultationId, ct);
         if (m is null)
@@ -93,6 +111,7 @@ public class MedicalCertificatesController(ClinicAppDbContext db) : ControllerBa
     {
         var m = await db.MedicalCertificates.SingleOrDefaultAsync(x => x.ConsultationId == consultationId, ct);
         if (m is null) return NotFound();
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(m.DoctorId)) return Forbid();
         db.MedicalCertificates.Remove(m);
         await db.SaveChangesAsync(ct);
         return NoContent();

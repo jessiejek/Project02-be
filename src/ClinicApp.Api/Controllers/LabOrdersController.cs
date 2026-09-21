@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -23,12 +24,20 @@ public record LabOrderInput(
 [ApiController]
 [Authorize]
 [Route("api/lab-orders")]
-public class LabOrdersController(ClinicAppDbContext db) : ControllerBase
+public class LabOrdersController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<LabOrder>>> GetAll(
         [FromQuery] Guid? consultationId, [FromQuery] Guid? patientId, [FromQuery] Guid? bookingId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsPatient)
+        {
+            if (actor.PatientId is null || (patientId is not null && patientId != actor.PatientId)) return Forbid();
+            patientId = actor.PatientId;
+        }
+        else if (!actor.IsStaffLike) return Forbid();
+
         var q = db.LabOrders.AsNoTracking().AsQueryable();
         if (consultationId is not null) q = q.Where(l => l.ConsultationId == consultationId);
         if (patientId is not null) q = q.Where(l => l.PatientId == patientId);
@@ -42,17 +51,24 @@ public class LabOrdersController(ClinicAppDbContext db) : ControllerBase
     }
 
     [HttpGet("by-consultation/{consultationId:guid}")]
-    public async Task<ActionResult<List<LabOrder>>> GetByConsultation(Guid consultationId, CancellationToken ct) =>
-        Ok(await db.LabOrders.AsNoTracking()
+    public async Task<ActionResult<List<LabOrder>>> GetByConsultation(Guid consultationId, CancellationToken ct)
+    {
+        var owner = await db.Consultations.AsNoTracking().Where(c => c.ConsultationId == consultationId)
+            .Select(c => (Guid?)c.PatientId).SingleOrDefaultAsync(ct);
+        // Unknown id and someone else's id look identical to a patient (empty list), like RLS.
+        if (owner is null || !(await actors.ResolveAsync(User, ct)).CanAccessPatient(owner.Value)) return Ok(new List<LabOrder>());
+        return Ok(await db.LabOrders.AsNoTracking()
             .Where(l => l.ConsultationId == consultationId)
             .OrderBy(l => l.CreatedAt).ToListAsync(ct));
+    }
 
     [HttpGet("by-booking/{bookingId:guid}")]
     public async Task<ActionResult<List<LabOrder>>> GetByBooking(Guid bookingId, CancellationToken ct)
     {
-        var cid = await db.Consultations.Where(c => c.BookingId == bookingId)
-            .Select(c => (Guid?)c.ConsultationId).SingleOrDefaultAsync(ct);
-        if (cid is null) return Ok(new List<LabOrder>());
+        var owned = await db.Consultations.AsNoTracking().Where(c => c.BookingId == bookingId)
+            .Select(c => new { c.ConsultationId, c.PatientId }).SingleOrDefaultAsync(ct);
+        if (owned is null || !(await actors.ResolveAsync(User, ct)).CanAccessPatient(owned.PatientId)) return Ok(new List<LabOrder>());
+        var cid = owned.ConsultationId;
         return Ok(await db.LabOrders.AsNoTracking()
             .Where(l => l.ConsultationId == cid).OrderBy(l => l.CreatedAt).ToListAsync(ct));
     }
@@ -67,6 +83,7 @@ public class LabOrdersController(ClinicAppDbContext db) : ControllerBase
         var consult = await db.Consultations.AsNoTracking()
             .SingleOrDefaultAsync(c => c.ConsultationId == consultationId, ct);
         if (consult is null) return NotFound(new { message = "Consultation not found." });
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(consult.DoctorId)) return Forbid();
 
         var existing = db.LabOrders.Where(l => l.ConsultationId == consultationId);
         db.LabOrders.RemoveRange(existing);

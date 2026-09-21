@@ -1,5 +1,6 @@
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Hubs;
+using ClinicApp.Api.Security;
 using ClinicApp.Domain;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
@@ -28,7 +29,7 @@ public record CancelQueueEntryRequest(string? Reason);
 [ApiController]
 [Authorize(Roles = "Admin,Staff,Doctor")]
 [Route("api/queue")]
-public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) : ControllerBase
+public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, ActorResolver actors) : ControllerBase
 {
     /// <summary>Check a walk-in patient into today's queue. Returns the printable ticket.</summary>
     [Authorize(Roles = "Admin,Staff")]
@@ -224,6 +225,8 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) 
     {
         var b = await db.Bookings.SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
         if (b is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsDoctor && !actor.ActsAsDoctor(b.DoctorId)) return Forbid(); // a doctor only moves their own queue
         b.Status = status;
         b.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);

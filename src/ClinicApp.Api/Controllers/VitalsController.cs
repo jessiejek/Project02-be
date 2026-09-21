@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -14,12 +15,20 @@ public record VitalReadingInput(Guid TemplateId, string Value);
 [ApiController]
 [Authorize]
 [Route("api/vitals")]
-public class VitalsController(ClinicAppDbContext db) : ControllerBase
+public class VitalsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<PatientVitalReading>>> GetAll(
         [FromQuery] Guid? bookingId, [FromQuery] Guid? patientId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsPatient)
+        {
+            if (actor.PatientId is null || (patientId is not null && patientId != actor.PatientId)) return Forbid();
+            patientId = actor.PatientId;
+        }
+        else if (!actor.IsStaffLike) return Forbid();
+
         var q = db.PatientVitalReadings.AsNoTracking().AsQueryable();
         if (bookingId is not null) q = q.Where(r => r.BookingId == bookingId);
         if (patientId is not null) q = q.Where(r => r.PatientId == patientId);

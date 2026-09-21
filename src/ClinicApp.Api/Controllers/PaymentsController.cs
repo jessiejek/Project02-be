@@ -1,4 +1,5 @@
 using ClinicApp.Api.Hubs;
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -16,20 +17,22 @@ public record RefundPaymentRequest(decimal Amount, string Reason);
 [ApiController]
 [Authorize]
 [Route("api/payments")]
-public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) : ControllerBase
+public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, ActorResolver actors) : ControllerBase
 {
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Payment>> GetById(Guid id, CancellationToken ct)
     {
         var payment = await db.Payments.AsNoTracking().SingleOrDefaultAsync(p => p.PaymentId == id, ct);
-        return payment is null ? NotFound() : Ok(payment);
+        if (payment is null) return NotFound();
+        return await CanReadAsync(payment.BookingId, ct) ? Ok(payment) : NotFound();
     }
 
     [HttpGet("booking/{bookingId:guid}")]
     public async Task<ActionResult<Payment>> GetByBooking(Guid bookingId, CancellationToken ct)
     {
         var payment = await db.Payments.AsNoTracking().SingleOrDefaultAsync(p => p.BookingId == bookingId, ct);
-        return payment is null ? NotFound() : Ok(payment);
+        if (payment is null) return NotFound();
+        return await CanReadAsync(payment.BookingId, ct) ? Ok(payment) : NotFound();
     }
 
     [Authorize(Roles = "Admin,Staff")]
@@ -61,12 +64,27 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         return Ok(payment);
     }
 
-    [Authorize(Roles = "Admin,Staff")]
+    /// <summary>Waiving a fee is the doctor's call (contract §17.2 #5, roadmap Phase 4d:
+    /// waive = Doctor/Admin). Front-desk Staff may only *record* a waiver the doctor already
+    /// decided on the consultation (`pf_decision = 'Waive'`) — they can't waive on their own.</summary>
+    [Authorize(Roles = "Admin,Staff,Doctor")]
     [HttpPost("{id:guid}/waive")]
     public async Task<IActionResult> Waive(Guid id, WaivePaymentRequest request, CancellationToken ct)
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.PaymentId == id, ct);
         if (payment is null) return NotFound();
+
+        var actor = await actors.ResolveAsync(User, ct);
+        var owningBooking = await db.Bookings.AsNoTracking().SingleAsync(b => b.BookingId == payment.BookingId, ct);
+        if (actor.IsDoctor && !actor.ActsAsDoctor(owningBooking.DoctorId)) return Forbid();
+        if (actor.IsStaff)
+        {
+            var doctorDecided = await db.Consultations.AnyAsync(
+                c => c.BookingId == payment.BookingId && c.PfDecision == "Waive", ct);
+            if (!doctorDecided)
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    new { message = "Only the doctor can waive the professional fee." });
+        }
 
         payment.Status = PaymentStatus.Waived;
         payment.WaivedReason = request.Reason;
@@ -110,6 +128,15 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
 
         await db.SaveChangesAsync(ct);
         return Ok(payment);
+    }
+
+    /// <summary>Own booking's payment for a patient; any payment for staff-like roles.</summary>
+    private async Task<bool> CanReadAsync(Guid bookingId, CancellationToken ct)
+    {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsStaffLike) return true;
+        if (!actor.IsPatient || actor.PatientId is null) return false;
+        return await db.Bookings.AnyAsync(b => b.BookingId == bookingId && b.PatientId == actor.PatientId, ct);
     }
 
     private Guid? CurrentUserId()

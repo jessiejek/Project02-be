@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -10,7 +11,7 @@ namespace ClinicApp.Api.Controllers;
 /// flow needs (doctor list/schedule are shown pre-login).</summary>
 [ApiController]
 [Route("api/doctors")]
-public class DoctorsController(ClinicAppDbContext db) : ControllerBase
+public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<Doctor>>> GetAll(CancellationToken ct)
@@ -118,6 +119,8 @@ public class DoctorsController(ClinicAppDbContext db) : ControllerBase
     [HttpPut("{id:guid}/schedules")]
     public async Task<IActionResult> UpsertSchedule(Guid id, DoctorSchedule payload, CancellationToken ct)
     {
+        // A doctor edits only their own schedule; Admin may edit any.
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(id)) return Forbid();
         // Conflict key: (doctor_id, day_of_week) — contract §4.
         var existing = await db.DoctorSchedules.SingleOrDefaultAsync(s => s.DoctorId == id && s.DayOfWeek == payload.DayOfWeek, ct);
         if (existing is null)
@@ -147,6 +150,7 @@ public class DoctorsController(ClinicAppDbContext db) : ControllerBase
     [HttpPost("{id:guid}/blocked-dates")]
     public async Task<IActionResult> AddBlockedDate(Guid id, DoctorBlockedDate payload, CancellationToken ct)
     {
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(id)) return Forbid();
         payload.Id = Guid.NewGuid();
         payload.DoctorId = id;
         payload.CreatedAt = DateTimeOffset.UtcNow;
@@ -161,6 +165,7 @@ public class DoctorsController(ClinicAppDbContext db) : ControllerBase
     {
         var row = await db.DoctorBlockedDates.FindAsync([blockedDateId], ct);
         if (row is null) return NotFound();
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(row.DoctorId)) return Forbid();
         db.DoctorBlockedDates.Remove(row);
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -180,6 +185,9 @@ public class DoctorsController(ClinicAppDbContext db) : ControllerBase
     [HttpPut("{id:guid}/day-status")]
     public async Task<IActionResult> UpsertDayStatus(Guid id, DoctorDayStatus payload, CancellationToken ct)
     {
+        // Front desk (Staff) and Admin may set any doctor's day status; a Doctor only their own.
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsDoctor && !actor.ActsAsDoctor(id)) return Forbid();
         // Conflict key: (doctor_id, status_date) — contract §4.
         var now = DateTimeOffset.UtcNow;
         var existing = await db.DoctorDayStatuses.SingleOrDefaultAsync(s => s.DoctorId == id && s.StatusDate == payload.StatusDate, ct);

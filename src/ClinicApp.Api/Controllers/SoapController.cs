@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -14,15 +15,19 @@ public record SoapTemplateInput(string Title, bool IsSystemTemplate, string? Chi
 [ApiController]
 [Authorize(Roles = "Doctor,Admin")]
 [Route("api")]
-public class SoapController(ClinicAppDbContext db) : ControllerBase
+public class SoapController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     [HttpGet("soap-phrases")]
-    public async Task<ActionResult<List<SoapPhrase>>> GetPhrases([FromQuery] Guid doctorId, CancellationToken ct) =>
-        Ok(await db.SoapPhrases.AsNoTracking().Where(p => p.DoctorId == doctorId).ToListAsync(ct));
+    public async Task<ActionResult<List<SoapPhrase>>> GetPhrases([FromQuery] Guid doctorId, CancellationToken ct)
+    {
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
+        return Ok(await db.SoapPhrases.AsNoTracking().Where(p => p.DoctorId == doctorId).ToListAsync(ct));
+    }
 
     [HttpPost("soap-phrases")]
     public async Task<ActionResult<SoapPhrase>> CreatePhrase([FromQuery] Guid doctorId, SoapPhraseInput input, CancellationToken ct)
     {
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
         var now = DateTimeOffset.UtcNow;
         var p = new SoapPhrase
         {
@@ -39,6 +44,7 @@ public class SoapController(ClinicAppDbContext db) : ControllerBase
     {
         var p = await db.SoapPhrases.SingleOrDefaultAsync(x => x.Id == id, ct);
         if (p is null) return NotFound();
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(p.DoctorId)) return Forbid();
         p.Field = input.Field;
         p.Label = input.Label;
         p.Body = input.Body;
@@ -52,6 +58,7 @@ public class SoapController(ClinicAppDbContext db) : ControllerBase
     {
         var p = await db.SoapPhrases.SingleOrDefaultAsync(x => x.Id == id, ct);
         if (p is null) return NotFound();
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(p.DoctorId)) return Forbid();
         db.SoapPhrases.Remove(p);
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -60,6 +67,14 @@ public class SoapController(ClinicAppDbContext db) : ControllerBase
     [HttpGet("soap-templates")]
     public async Task<ActionResult<List<SoapTemplate>>> GetTemplates([FromQuery] Guid? doctorId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsDoctor)
+        {
+            // Own templates + system templates only, never another doctor's.
+            if (doctorId is not null && !actor.ActsAsDoctor(doctorId.Value)) return Forbid();
+            doctorId = actor.StaffId;
+        }
+
         var q = db.SoapTemplates.AsNoTracking().AsQueryable();
         if (doctorId is not null) q = q.Where(t => t.DoctorId == doctorId || t.IsSystemTemplate);
         return Ok(await q.OrderBy(t => t.Title).ToListAsync(ct));
@@ -68,6 +83,9 @@ public class SoapController(ClinicAppDbContext db) : ControllerBase
     [HttpPost("soap-templates")]
     public async Task<ActionResult<SoapTemplate>> CreateTemplate([FromQuery] Guid doctorId, SoapTemplateInput input, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.ActsAsDoctor(doctorId)) return Forbid();
+        if (input.IsSystemTemplate && !actor.IsAdmin) return Forbid(); // system templates are Admin-managed
         var now = DateTimeOffset.UtcNow;
         var t = new SoapTemplate
         {
@@ -85,6 +103,8 @@ public class SoapController(ClinicAppDbContext db) : ControllerBase
     {
         var t = await db.SoapTemplates.SingleOrDefaultAsync(x => x.Id == id, ct);
         if (t is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.ActsAsDoctor(t.DoctorId) || ((t.IsSystemTemplate || input.IsSystemTemplate) && !actor.IsAdmin)) return Forbid();
         t.Title = input.Title;
         t.IsSystemTemplate = input.IsSystemTemplate;
         t.ChiefComplaint = input.ChiefComplaint;
@@ -102,6 +122,8 @@ public class SoapController(ClinicAppDbContext db) : ControllerBase
     {
         var t = await db.SoapTemplates.SingleOrDefaultAsync(x => x.Id == id, ct);
         if (t is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.ActsAsDoctor(t.DoctorId) || (t.IsSystemTemplate && !actor.IsAdmin)) return Forbid();
         db.SoapTemplates.Remove(t);
         await db.SaveChangesAsync(ct);
         return NoContent();

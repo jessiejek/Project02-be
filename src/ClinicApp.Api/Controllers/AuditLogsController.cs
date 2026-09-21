@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -12,14 +13,24 @@ public record CreateAuditLogRequest(AuditEntityType EntityType, Guid EntityId, s
 [ApiController]
 [Authorize]
 [Route("api/audit-logs")]
-public class AuditLogsController(ClinicAppDbContext db) : ControllerBase
+public class AuditLogsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
-    [Authorize(Roles = "Admin,Doctor,Staff")]
+    /// <summary>RLS `audit_logs_select_admin`: the audit trail is Admin-only — it carries
+    /// before/after patient field values. The one exception is the amend history a doctor sees
+    /// on the consultation page, so a Doctor may read `Consultation` entries only.</summary>
+    [Authorize(Roles = "Admin,Doctor")]
     [HttpGet]
     public async Task<ActionResult<List<AuditLog>>> GetAll(
         [FromQuery] AuditEntityType? entityType, [FromQuery] Guid? entityId,
         [FromQuery] int take = 100, CancellationToken ct = default)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.IsAdmin)
+        {
+            if (entityType is not AuditEntityType.Consultation) return Forbid();
+        }
+        take = Math.Clamp(take, 1, 500);
+
         var q = db.AuditLogs.AsNoTracking().AsQueryable();
         if (entityType is not null) q = q.Where(a => a.EntityType == entityType);
         if (entityId is not null) q = q.Where(a => a.EntityId == entityId);
@@ -28,7 +39,7 @@ public class AuditLogsController(ClinicAppDbContext db) : ControllerBase
 
     /// <summary>§16.2 — paged + searched audit trail for the admin screen.
     /// `q` matches action / details.</summary>
-    [Authorize(Roles = "Admin,Doctor,Staff")]
+    [Authorize(Roles = "Admin")]
     [HttpGet("search")]
     public async Task<ActionResult<PagedResult<AuditLog>>> Search(
         [FromQuery] string? q,

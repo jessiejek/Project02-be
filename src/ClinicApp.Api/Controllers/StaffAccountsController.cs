@@ -1,4 +1,5 @@
 using ClinicApp.Domain.Entities;
+using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -67,7 +68,13 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
     public async Task<ActionResult<StaffAccount>> GetById(Guid id, CancellationToken ct)
     {
         var row = await db.StaffAccounts.AsNoTracking().SingleOrDefaultAsync(s => s.StaffId == id, ct);
-        return row is null ? NotFound() : Ok(row);
+        if (row is null) return NotFound();
+
+        // RLS staff_accounts_select_doctors_or_staff: staff-like roles read any row; everyone else
+        // (patients) only an active Doctor's row (the doctor browse pages) or their own.
+        var isStaffLike = User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Doctor");
+        var isPublicDoctor = row.Role == StaffRole.Doctor && row.Status != StaffStatus.Inactive;
+        return isStaffLike || isPublicDoctor || CurrentUserId() == row.UserId ? Ok(row) : NotFound();
     }
 
     /// <summary>The logged-in staff/doctor/admin's own row (session, profile page).</summary>
@@ -88,14 +95,15 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         var row = await db.StaffAccounts.SingleOrDefaultAsync(s => s.StaffId == id, ct);
         if (row is null) return NotFound();
 
+        // RLS staff_accounts_update_own_or_admin: your own row, or Admin for anyone's.
         var self = CurrentUserId() == row.UserId;
-        if (!self && !(User.IsInRole("Admin") || User.IsInRole("Staff")))
-            return Forbid();
+        var isAdmin = User.IsInRole("Admin");
+        if (!self && !isAdmin) return Forbid();
 
         row.FullName = payload.FullName;
         row.ContactNumber = payload.ContactNumber;
-        // Only Admin/Staff may change status; a self-edit keeps the existing value.
-        if (!self && (User.IsInRole("Admin") || User.IsInRole("Staff")))
+        // Only an Admin changing someone else's row may change status; a self-edit keeps it.
+        if (!self && isAdmin)
             row.Status = payload.Status;
 
         await db.SaveChangesAsync(ct);

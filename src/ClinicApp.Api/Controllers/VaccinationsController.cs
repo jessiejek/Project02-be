@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -27,21 +28,34 @@ public record VaccinationInput(
 [ApiController]
 [Authorize]
 [Route("api/patient-vaccinations")]
-public class VaccinationsController(ClinicAppDbContext db) : ControllerBase
+public class VaccinationsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<PatientVaccination>>> GetAll([FromQuery] Guid? patientId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsPatient)
+        {
+            if (actor.PatientId is null || (patientId is not null && patientId != actor.PatientId)) return Forbid();
+            patientId = actor.PatientId;
+        }
+        else if (!actor.IsStaffLike) return Forbid();
+
         var q = db.PatientVaccinations.AsNoTracking().AsQueryable();
         if (patientId is not null) q = q.Where(v => v.PatientId == patientId);
         return Ok(await q.OrderByDescending(v => v.AdministeredDate).ToListAsync(ct));
     }
 
     [HttpGet("by-consultation/{consultationId:guid}")]
-    public async Task<ActionResult<List<PatientVaccination>>> GetByConsultation(Guid consultationId, CancellationToken ct) =>
-        Ok(await db.PatientVaccinations.AsNoTracking()
+    public async Task<ActionResult<List<PatientVaccination>>> GetByConsultation(Guid consultationId, CancellationToken ct)
+    {
+        var owner = await db.Consultations.AsNoTracking().Where(c => c.ConsultationId == consultationId)
+            .Select(c => (Guid?)c.PatientId).SingleOrDefaultAsync(ct);
+        if (owner is null || !(await actors.ResolveAsync(User, ct)).CanAccessPatient(owner.Value)) return Ok(new List<PatientVaccination>());
+        return Ok(await db.PatientVaccinations.AsNoTracking()
             .Where(v => v.ConsultationId == consultationId)
             .OrderBy(v => v.CreatedAt).ToListAsync(ct));
+    }
 
     /// <summary>Replace-all for the doses administered at one consultation. Only
     /// touches this consultation's in-clinic rows — a patient's reported/external
@@ -54,6 +68,7 @@ public class VaccinationsController(ClinicAppDbContext db) : ControllerBase
         var consult = await db.Consultations.AsNoTracking()
             .SingleOrDefaultAsync(c => c.ConsultationId == consultationId, ct);
         if (consult is null) return NotFound(new { message = "Consultation not found." });
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(consult.DoctorId)) return Forbid();
 
         var existing = db.PatientVaccinations.Where(v =>
             v.ConsultationId == consultationId && v.Source == VaccinationSource.AdministeredInClinic);

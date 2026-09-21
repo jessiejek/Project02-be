@@ -1,4 +1,5 @@
 using ClinicApp.Api.Auditing;
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -28,7 +29,7 @@ public record CreatePatientBookingRequest(DateOnly? AppointmentDate, VisitType? 
 [ApiController]
 [Authorize]
 [Route("api/bookings")]
-public class BookingsController(ClinicAppDbContext db) : ControllerBase
+public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     private IQueryable<Booking> WithEmbeds() =>
         db.Bookings.AsNoTracking()
@@ -47,6 +48,15 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
         [FromQuery] BookingStatus? status,
         CancellationToken ct)
     {
+        // Patients only ever see their own bookings (RLS bookings_select_own_or_staff).
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsPatient)
+        {
+            if (actor.PatientId is null || (patientId is not null && patientId != actor.PatientId)) return Forbid();
+            patientId = actor.PatientId;
+        }
+        else if (!actor.IsStaffLike) return Forbid();
+
         var query = WithEmbeds();
         if (patientId is not null) query = query.Where(b => b.PatientId == patientId);
         if (doctorId is not null) query = query.Where(b => b.DoctorId == doctorId);
@@ -63,7 +73,9 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
     public async Task<ActionResult<Booking>> GetById(Guid id, CancellationToken ct)
     {
         var booking = await WithEmbeds().SingleOrDefaultAsync(b => b.BookingId == id, ct);
-        return booking is null ? NotFound() : Ok(booking);
+        if (booking is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        return actor.CanAccessPatient(booking.PatientId) ? Ok(booking) : NotFound(); // 404, not 403: don't confirm the id exists
     }
 
     /// <summary>Admin/Staff only — this trusts `request.PatientId` from the body, which is
@@ -137,6 +149,8 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
     {
         var booking = await db.Bookings.SingleOrDefaultAsync(b => b.BookingId == id, ct);
         if (booking is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsDoctor && !actor.ActsAsDoctor(booking.DoctorId)) return Forbid(); // a doctor only moves their own bookings
 
         var oldStatus = booking.Status;
         booking.Status = request.Status;

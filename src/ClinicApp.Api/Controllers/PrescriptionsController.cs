@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -21,7 +22,7 @@ public record FavoriteMedicineInput(Guid MedicineId, string GenericName, string 
 [ApiController]
 [Authorize]
 [Route("api")]
-public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
+public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     // ── prescription_groups (+ line items) ──────────────────────────────────
     // §6 embed: prescription_groups(bookings(appointment_date, doctors(staff_accounts(full_name)))).
@@ -34,6 +35,14 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     public async Task<ActionResult<List<PrescriptionGroup>>> GetGroups(
         [FromQuery] Guid? patientId, [FromQuery] Guid? bookingId, [FromQuery] Guid? doctorId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsPatient)
+        {
+            if (actor.PatientId is null || (patientId is not null && patientId != actor.PatientId)) return Forbid();
+            patientId = actor.PatientId;
+        }
+        else if (!actor.IsStaffLike) return Forbid();
+
         var q = Groups();
         if (patientId is not null) q = q.Where(g => g.PatientId == patientId);
         if (bookingId is not null) q = q.Where(g => g.BookingId == bookingId);
@@ -45,7 +54,8 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     public async Task<ActionResult<PrescriptionGroup>> GetGroup(Guid id, CancellationToken ct)
     {
         var g = await Groups().SingleOrDefaultAsync(x => x.GroupId == id, ct);
-        return g is null ? NotFound() : Ok(g);
+        if (g is null) return NotFound();
+        return (await actors.ResolveAsync(User, ct)).CanAccessPatient(g.PatientId) ? Ok(g) : NotFound();
     }
 
     [Authorize(Roles = "Doctor,Admin")]
@@ -54,6 +64,7 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     {
         var g = await db.PrescriptionGroups.SingleOrDefaultAsync(x => x.GroupId == id, ct);
         if (g is null) return NotFound();
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(g.DoctorId)) return Forbid();
         db.PrescriptionGroups.Remove(g); // line items cascade
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -64,6 +75,13 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     [HttpPut("prescription-groups/by-booking/{bookingId:guid}")]
     public async Task<ActionResult<PrescriptionGroup>> UpsertGroupByBooking(Guid bookingId, UpsertRxGroupRequest req, CancellationToken ct)
     {
+        // Patient / doctor come from the booking, not the body; a doctor only writes their own visits.
+        var ownerBooking = await db.Bookings.AsNoTracking().SingleOrDefaultAsync(b => b.BookingId == bookingId, ct);
+        if (ownerBooking is null) return NotFound(new { message = "Booking not found." });
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(ownerBooking.DoctorId)) return Forbid();
+        if (req.PatientId != ownerBooking.PatientId || req.DoctorId != ownerBooking.DoctorId)
+            return BadRequest(new { message = "Patient / doctor do not match the booking." });
+
         var now = DateTimeOffset.UtcNow;
         var g = await db.PrescriptionGroups.Include(x => x.LineItems).SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
         if (g is null)
@@ -93,9 +111,18 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     }
 
     // ── prescription_templates (+ items) ───────────────────────────────────
+    [Authorize(Roles = "Admin,Staff,Doctor")]
     [HttpGet("prescription-templates")]
     public async Task<ActionResult<List<PrescriptionTemplate>>> GetTemplates([FromQuery] Guid? doctorId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsDoctor)
+        {
+            // A doctor sees only their own sets + system sets, never another doctor's.
+            if (doctorId is not null && !actor.ActsAsDoctor(doctorId.Value)) return Forbid();
+            doctorId = actor.StaffId;
+        }
+
         var q = db.PrescriptionTemplates.AsNoTracking().Include(t => t.Items).AsQueryable();
         if (doctorId is not null) q = q.Where(t => t.DoctorId == doctorId || t.IsSystemTemplate);
         return Ok(await q.OrderBy(t => t.Title).ToListAsync(ct));
@@ -105,6 +132,10 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     [HttpPost("prescription-templates")]
     public async Task<ActionResult<PrescriptionTemplate>> CreateTemplate(UpsertRxTemplateRequest req, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.ActsAsDoctor(req.DoctorId)) return Forbid();
+        if (req.IsSystemTemplate && !actor.IsAdmin) return Forbid(); // system sets are Admin-managed
+
         var now = DateTimeOffset.UtcNow;
         var t = new PrescriptionTemplate
         {
@@ -129,6 +160,8 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     {
         var t = await db.PrescriptionTemplates.Include(x => x.Items).SingleOrDefaultAsync(x => x.TemplateId == id, ct);
         if (t is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.ActsAsDoctor(t.DoctorId) || ((t.IsSystemTemplate || req.IsSystemTemplate) && !actor.IsAdmin)) return Forbid();
 
         var now = DateTimeOffset.UtcNow;
         t.Title = req.Title;
@@ -152,20 +185,27 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     {
         var t = await db.PrescriptionTemplates.SingleOrDefaultAsync(x => x.TemplateId == id, ct);
         if (t is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.ActsAsDoctor(t.DoctorId) || (t.IsSystemTemplate && !actor.IsAdmin)) return Forbid();
         db.PrescriptionTemplates.Remove(t);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
 
     // ── doctor_favorite_medicines ─────────────────────────────────────────
+    [Authorize(Roles = "Doctor,Admin")]
     [HttpGet("doctor-favorite-medicines")]
-    public async Task<ActionResult<List<DoctorFavoriteMedicine>>> GetFavorites([FromQuery] Guid doctorId, CancellationToken ct) =>
-        Ok(await db.DoctorFavoriteMedicines.AsNoTracking().Where(f => f.DoctorId == doctorId).OrderBy(f => f.GenericName).ToListAsync(ct));
+    public async Task<ActionResult<List<DoctorFavoriteMedicine>>> GetFavorites([FromQuery] Guid doctorId, CancellationToken ct)
+    {
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
+        return Ok(await db.DoctorFavoriteMedicines.AsNoTracking().Where(f => f.DoctorId == doctorId).OrderBy(f => f.GenericName).ToListAsync(ct));
+    }
 
     [Authorize(Roles = "Doctor,Admin")]
     [HttpPost("doctor-favorite-medicines")]
     public async Task<ActionResult<DoctorFavoriteMedicine>> AddFavorite([FromQuery] Guid doctorId, FavoriteMedicineInput input, CancellationToken ct)
     {
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
         var f = new DoctorFavoriteMedicine
         {
             Id = Guid.NewGuid(), DoctorId = doctorId, MedicineId = input.MedicineId,
@@ -183,6 +223,7 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     {
         var f = await db.DoctorFavoriteMedicines.SingleOrDefaultAsync(x => x.Id == id, ct);
         if (f is null) return NotFound();
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(f.DoctorId)) return Forbid();
         f.MedicineId = input.MedicineId;
         f.GenericName = input.GenericName;
         f.Dosage = input.Dosage;
@@ -198,6 +239,7 @@ public class PrescriptionsController(ClinicAppDbContext db) : ControllerBase
     {
         var f = await db.DoctorFavoriteMedicines.SingleOrDefaultAsync(x => x.Id == id, ct);
         if (f is null) return NotFound();
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(f.DoctorId)) return Forbid();
         db.DoctorFavoriteMedicines.Remove(f);
         await db.SaveChangesAsync(ct);
         return NoContent();

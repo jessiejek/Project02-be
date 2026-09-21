@@ -78,6 +78,20 @@ public class LocalFileStorageService(FileStorageOptions options) : IFileStorageS
         return Task.CompletedTask;
     }
 
+    public string? ResolvePath(string storedUrl)
+    {
+        var prefix = options.PublicPathPrefix.TrimEnd('/') + "/";
+        if (!storedUrl.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+
+        var relative = Uri.UnescapeDataString(storedUrl[prefix.Length..]).Replace('/', Path.DirectorySeparatorChar);
+        var root = Path.GetFullPath(options.RootPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var full = Path.GetFullPath(Path.Combine(root, relative));
+
+        // Containment check — reject `..` escapes and absolute-path tricks.
+        if (!full.StartsWith(root, StringComparison.Ordinal)) return null;
+        return File.Exists(full) ? full : null;
+    }
+
     private static string Sanitize(string fileName)
     {
         var name = Path.GetFileName(fileName);

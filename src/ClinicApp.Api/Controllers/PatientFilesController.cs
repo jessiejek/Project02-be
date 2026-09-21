@@ -1,3 +1,4 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
 using ClinicApp.Infrastructure.Files;
@@ -8,23 +9,40 @@ using Microsoft.EntityFrameworkCore;
 namespace ClinicApp.Api.Controllers;
 
 /// <summary>patient_documents / patient_lab_results (contract §4, §8). Multipart
-/// upload → local disk (App_Data/uploads) → row insert; file_url points at the
-/// static-file mount, same shape as the old Supabase public URL.</summary>
+/// upload → local disk (App_Data/uploads) → row insert.
+///
+/// Files are PHI, so they are NOT served as static files: the only way to read the
+/// bytes is `GET …/{id}/file`, which requires a bearer token and the caller to be
+/// the owning patient or staff-like (docs/AUTHZ_MATRIX.md). `file_url` in the row
+/// stays as the internal storage key and is not fetchable on its own.</summary>
 [ApiController]
 [Authorize]
 [Route("api")]
-public class PatientFilesController(ClinicAppDbContext db, IFileStorageService storage) : ControllerBase
+public class PatientFilesController(ClinicAppDbContext db, IFileStorageService storage, ActorResolver actors) : ControllerBase
 {
     // ── patient_documents ─────────────────────────────────────────────────
     [HttpGet("patient-documents")]
     public async Task<ActionResult<List<PatientDocument>>> GetDocuments(
         [FromQuery] Guid? patientId, [FromQuery] Guid? bookingId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!TryScope(actor, ref patientId)) return Forbid();
+
         var q = db.PatientDocuments.AsNoTracking()
             .Include(d => d.Booking).ThenInclude(b => b!.Doctor).ThenInclude(d => d!.StaffAccount).AsQueryable();
         if (patientId is not null) q = q.Where(d => d.PatientId == patientId);
         if (bookingId is not null) q = q.Where(d => d.BookingId == bookingId);
         return Ok(await q.OrderByDescending(d => d.UploadedAt).ToListAsync(ct));
+    }
+
+    [HttpGet("patient-documents/{id:guid}/file")]
+    public async Task<IActionResult> DownloadDocument(Guid id, CancellationToken ct)
+    {
+        var doc = await db.PatientDocuments.AsNoTracking().SingleOrDefaultAsync(d => d.Id == id, ct);
+        if (doc is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.CanAccessPatient(doc.PatientId)) return NotFound(); // don't confirm the id exists
+        return ServeFile(doc.FileUrl, doc.FileName, doc.FileContentType);
     }
 
     [HttpPost("patient-documents")]
@@ -34,6 +52,14 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
         [FromForm] string? title, [FromForm] string? description, IFormFile file, CancellationToken ct)
     {
         if (file is null || file.Length == 0) return BadRequest(new { message = "No file." });
+
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.CanAccessPatient(patientId)) return Forbid();
+        if (!await BookingBelongsToPatientAsync(bookingId, patientId, ct))
+            return BadRequest(new { message = "Booking does not belong to this patient." });
+        if (consultationId is not null &&
+            !await db.Consultations.AnyAsync(c => c.ConsultationId == consultationId && c.PatientId == patientId, ct))
+            return BadRequest(new { message = "Consultation does not belong to this patient." });
 
         string url;
         try
@@ -55,7 +81,7 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
             Title = title,
             Description = description,
             FileUrl = url,
-            UploadedByUserId = CurrentUserId(),
+            UploadedByUserId = actor.UserId,
             UploadedAt = DateTimeOffset.UtcNow
         };
         db.PatientDocuments.Add(row);
@@ -68,11 +94,24 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
     public async Task<ActionResult<List<PatientLabResult>>> GetLabResults(
         [FromQuery] Guid? patientId, [FromQuery] Guid? bookingId, CancellationToken ct)
     {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!TryScope(actor, ref patientId)) return Forbid();
+
         var q = db.PatientLabResults.AsNoTracking()
             .Include(r => r.Booking).ThenInclude(b => b!.Doctor).ThenInclude(d => d!.StaffAccount).AsQueryable();
         if (patientId is not null) q = q.Where(r => r.PatientId == patientId);
         if (bookingId is not null) q = q.Where(r => r.BookingId == bookingId);
         return Ok(await q.OrderByDescending(r => r.UploadedAt).ToListAsync(ct));
+    }
+
+    [HttpGet("patient-lab-results/{id:guid}/file")]
+    public async Task<IActionResult> DownloadLabResult(Guid id, CancellationToken ct)
+    {
+        var row = await db.PatientLabResults.AsNoTracking().SingleOrDefaultAsync(r => r.Id == id, ct);
+        if (row is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.CanAccessPatient(row.PatientId)) return NotFound();
+        return ServeFile(row.FileUrl, row.FileName, row.FileContentType);
     }
 
     [HttpPost("patient-lab-results")]
@@ -83,6 +122,17 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
         IFormFile file, CancellationToken ct)
     {
         if (file is null || file.Length == 0) return BadRequest(new { message = "No file." });
+
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.CanAccessPatient(patientId)) return Forbid();
+        if (!await BookingBelongsToPatientAsync(bookingId, patientId, ct))
+            return BadRequest(new { message = "Booking does not belong to this patient." });
+        if (consultationId is not null &&
+            !await db.Consultations.AnyAsync(c => c.ConsultationId == consultationId && c.PatientId == patientId, ct))
+            return BadRequest(new { message = "Consultation does not belong to this patient." });
+        if (labOrderId is not null &&
+            !await db.LabOrders.AnyAsync(l => l.LabOrderId == labOrderId && l.PatientId == patientId, ct))
+            return BadRequest(new { message = "Lab order does not belong to this patient." });
 
         string url;
         try
@@ -112,9 +162,32 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
         return Ok(row);
     }
 
-    private Guid? CurrentUserId()
+    /// <summary>List scoping: a patient only ever sees their own rows (an explicit
+    /// filter for someone else's patient id is refused); staff-like roles see any.</summary>
+    private static bool TryScope(Actor actor, ref Guid? patientId)
     {
-        var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        return Guid.TryParse(sub, out var id) ? id : null;
+        if (actor.IsStaffLike) return true;
+        if (!actor.IsPatient || actor.PatientId is null) return false;
+        if (patientId is not null && patientId != actor.PatientId) return false;
+        patientId = actor.PatientId;
+        return true;
+    }
+
+    private Task<bool> BookingBelongsToPatientAsync(Guid bookingId, Guid patientId, CancellationToken ct) =>
+        db.Bookings.AnyAsync(b => b.BookingId == bookingId && b.PatientId == patientId, ct);
+
+    private IActionResult ServeFile(string storedUrl, string fileName, string? contentType)
+    {
+        var path = storage.ResolvePath(storedUrl);
+        if (path is null) return NotFound(new { message = "File is not available." });
+
+        // Only ever serve a type from the upload allow-list; anything else is opaque bytes.
+        var type = contentType is not null && FileStorageOptions.AllowedContentTypes.Contains(contentType)
+            ? contentType
+            : "application/octet-stream";
+
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers["Cache-Control"] = "private, no-store";
+        return PhysicalFile(path, type, fileName, enableRangeProcessing: false);
     }
 }

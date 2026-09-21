@@ -1,4 +1,7 @@
+using ClinicApp.Api.Auditing;
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
+using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -9,7 +12,7 @@ namespace ClinicApp.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/patients")]
-public class PatientsController(ClinicAppDbContext db) : ControllerBase
+public class PatientsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     [Authorize(Roles = "Admin,Staff,Doctor")]
     [HttpGet]
@@ -71,6 +74,9 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Patient>> GetById(Guid id, CancellationToken ct)
     {
+        // A patient may only read their own row (RLS patients_select_own_or_staff); 404 for others.
+        if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+
         var patient = await db.Patients.AsNoTracking().SingleOrDefaultAsync(p => p.PatientId == id, ct);
         return patient is null ? NotFound() : Ok(patient);
     }
@@ -96,6 +102,8 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
         }
 
         db.Patients.Add(payload);
+        AuditLogWriter.Add(db, AuditEntityType.Patient, payload.PatientId, "Created", CurrentUserId(),
+            $"Name: {payload.FirstName} {payload.LastName}; Code: {payload.PatientCode}");
         await db.SaveChangesAsync(ct);
         return CreatedAtAction(nameof(GetById), new { id = payload.PatientId }, payload);
     }
@@ -131,8 +139,18 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, Patient payload, CancellationToken ct)
     {
+        if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+
         var patient = await db.Patients.SingleOrDefaultAsync(p => p.PatientId == id, ct);
         if (patient is null) return NotFound();
+
+        var before = new
+        {
+            patient.FirstName, patient.MiddleName, patient.LastName, patient.DateOfBirth, patient.Sex,
+            patient.CivilStatus, patient.Address, patient.City, patient.ZipCode, patient.ContactNumber,
+            patient.EmergencyContactName, patient.EmergencyContactNumber, patient.EmergencyContactRelationship,
+            patient.BloodType, patient.PhilhealthNumber, patient.HmoProvider, patient.HmoCardNumber
+        };
 
         patient.FirstName = payload.FirstName;
         patient.MiddleName = payload.MiddleName;
@@ -151,6 +169,20 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
         patient.PhilhealthNumber = payload.PhilhealthNumber;
         patient.HmoProvider = payload.HmoProvider;
         patient.HmoCardNumber = payload.HmoCardNumber;
+        patient.UpdatedAt = DateTimeOffset.UtcNow;
+
+        var details = AuditLogWriter.DiffDetails(
+            ("First name", before.FirstName, patient.FirstName), ("Middle name", before.MiddleName, patient.MiddleName),
+            ("Last name", before.LastName, patient.LastName), ("Date of birth", before.DateOfBirth, patient.DateOfBirth),
+            ("Sex", before.Sex, patient.Sex), ("Civil status", before.CivilStatus, patient.CivilStatus),
+            ("Address", before.Address, patient.Address), ("City", before.City, patient.City),
+            ("Zip code", before.ZipCode, patient.ZipCode), ("Contact number", before.ContactNumber, patient.ContactNumber),
+            ("Emergency contact name", before.EmergencyContactName, patient.EmergencyContactName),
+            ("Emergency contact number", before.EmergencyContactNumber, patient.EmergencyContactNumber),
+            ("Emergency contact relationship", before.EmergencyContactRelationship, patient.EmergencyContactRelationship),
+            ("Blood type", before.BloodType, patient.BloodType), ("PhilHealth number", before.PhilhealthNumber, patient.PhilhealthNumber),
+            ("HMO provider", before.HmoProvider, patient.HmoProvider), ("HMO card number", before.HmoCardNumber, patient.HmoCardNumber));
+        AuditLogWriter.Add(db, AuditEntityType.Patient, patient.PatientId, "Updated", CurrentUserId(), details);
 
         await db.SaveChangesAsync(ct);
         return Ok(patient);
@@ -160,6 +192,8 @@ public class PatientsController(ClinicAppDbContext db) : ControllerBase
     [HttpPut("{id:guid}/consent")]
     public async Task<IActionResult> UpdateConsent(Guid id, [FromBody] int consentVersion, CancellationToken ct)
     {
+        if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+
         var patient = await db.Patients.SingleOrDefaultAsync(p => p.PatientId == id, ct);
         if (patient is null) return NotFound();
 
