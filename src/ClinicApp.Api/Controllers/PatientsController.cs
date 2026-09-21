@@ -12,7 +12,7 @@ namespace ClinicApp.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/patients")]
-public class PatientsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
+public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPatientCodeAllocator codes) : ControllerBase
 {
     [Authorize(Roles = "Admin,Staff,Doctor")]
     [HttpGet]
@@ -92,19 +92,18 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors) : C
         payload.UserId = null;
         payload.CreatedAt = now;
         payload.UpdatedAt = now;
-        if (string.IsNullOrWhiteSpace(payload.PatientCode))
-        {
-            // §17.1 #1 — server-side monotonic code. The old client/random
-            // `MF-{1000..9999}` had only 9000 values and no retry, so inserts
-            // started failing at ~110 patients. `NEXT VALUE FOR` can't run inside
-            // EF's SqlQuery wrapper, so hit the connection directly.
-            payload.PatientCode = $"MF-{await NextPatientCodeAsync(ct):D6}";
-        }
 
-        db.Patients.Add(payload);
-        AuditLogWriter.Add(db, AuditEntityType.Patient, payload.PatientId, "Created", CurrentUserId(),
-            $"Name: {payload.FirstName} {payload.LastName}; Code: {payload.PatientCode}");
-        await db.SaveChangesAsync(ct);
+        // §17.1 #1 — patient_code is always issued here (monotonic `MF-000123`); a code sent by
+        // the client is ignored. If two writers ever race to the same code the unique index
+        // rejects it and we retry with the next one — never a 500 or a half-saved patient.
+        var userId = CurrentUserId();
+        await PatientCodes.SaveWithFreshCodeAsync(db, codes, code =>
+        {
+            payload.PatientCode = code;
+            db.Patients.Add(payload);
+            AuditLogWriter.Add(db, AuditEntityType.Patient, payload.PatientId, "Created", userId,
+                $"Name: {payload.FirstName} {payload.LastName}; Code: {code}");
+        }, ct);
         return CreatedAtAction(nameof(GetById), new { id = payload.PatientId }, payload);
     }
 
@@ -207,24 +206,6 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors) : C
     {
         var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(sub, out var id) ? id : null;
-    }
-
-    private async Task<long> NextPatientCodeAsync(CancellationToken ct)
-    {
-        var conn = db.Database.GetDbConnection();
-        var opened = conn.State != System.Data.ConnectionState.Open;
-        if (opened) await conn.OpenAsync(ct);
-        try
-        {
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT NEXT VALUE FOR patient_code_seq";
-            var result = await cmd.ExecuteScalarAsync(ct);
-            return Convert.ToInt64(result);
-        }
-        finally
-        {
-            if (opened) await conn.CloseAsync();
-        }
     }
 
     private async Task<Guid?> CurrentPatientIdAsync(CancellationToken ct)

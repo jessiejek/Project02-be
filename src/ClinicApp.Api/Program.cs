@@ -104,6 +104,7 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<ClinicApp.Api.Security.ActorResolver>();
+builder.Services.AddSingleton<IPatientCodeAllocator, PatientCodeAllocator>();
 builder.Services.AddSignalR();
 
 // ── Rate limiting (§17.2) — per-client-IP. A generous global fixed window plus

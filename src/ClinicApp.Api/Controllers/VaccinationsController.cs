@@ -75,7 +75,7 @@ public class VaccinationsController(ClinicAppDbContext db, ActorResolver actors)
         db.PatientVaccinations.RemoveRange(existing);
 
         var now = DateTimeOffset.UtcNow;
-        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var today = ClinicApp.Domain.ClinicClock.Today; // clinic (Manila) date, not the UTC date
         var uid = CurrentUserId();
         foreach (var i in items)
         {

@@ -23,7 +23,8 @@ public class AuthController(
     ClinicAppDbContext db,
     ITokenService tokenService,
     PasswordHasherService passwordHasher,
-    IConfiguration configuration) : ControllerBase
+    IConfiguration configuration,
+    IPatientCodeAllocator patientCodes) : ControllerBase
 {
     [HttpPost("login")]
     public async Task<ActionResult<AuthSessionDto>> Login(LoginRequest request, CancellationToken ct)
@@ -65,15 +66,13 @@ public class AuthController(
         var user = new User { Id = Guid.NewGuid(), Email = email, EmailConfirmed = false, CreatedAt = now };
         user.PasswordHash = passwordHasher.Hash(user, request.Password);
 
-        db.Users.Add(user);
-        db.Profiles.Add(new Profile { Id = user.Id, Role = UserRole.Patient, CreatedAt = now });
-
-        var patientCode = $"P-{now:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
-        db.Patients.Add(new Patient
+        // §17.1 #1 — the patient_code comes from the same server allocator as staff-created
+        // patients (`MF-000123`), retried on a unique-index collision. (This used to be a
+        // UTC-date + random-hex code, which was both collision-prone and off the clinic's format.)
+        var patient = new Patient
         {
             PatientId = Guid.NewGuid(),
             UserId = user.Id,
-            PatientCode = patientCode,
             FirstName = request.FirstName.Trim(),
             MiddleName = string.IsNullOrWhiteSpace(request.MiddleName) ? null : request.MiddleName.Trim(),
             LastName = request.LastName.Trim(),
@@ -87,9 +86,16 @@ public class AuthController(
             ConsentedAt = now,
             CreatedAt = now,
             UpdatedAt = now
-        });
+        };
+        var profile = new Profile { Id = user.Id, Role = UserRole.Patient, CreatedAt = now };
 
-        await db.SaveChangesAsync(ct);
+        await PatientCodes.SaveWithFreshCodeAsync(db, patientCodes, code =>
+        {
+            patient.PatientCode = code;
+            db.Users.Add(user);
+            db.Profiles.Add(profile);
+            db.Patients.Add(patient);
+        }, ct);
 
         var session = await BuildSessionAsync(user, ct);
         return Ok(session);

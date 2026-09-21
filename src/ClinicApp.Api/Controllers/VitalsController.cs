@@ -46,7 +46,7 @@ public class VitalsController(ClinicAppDbContext db, ActorResolver actors) : Con
         if (booking is null) return NotFound(new { message = "Booking not found." });
 
         var now = DateTimeOffset.UtcNow;
-        var today = DateOnly.FromDateTime(now.Date);
+        var today = ClinicApp.Domain.ClinicClock.Today; // clinic (Manila) date, not the UTC date
         var uid = CurrentUserId();
         var existing = await db.PatientVitalReadings.Where(r => r.BookingId == bookingId).ToListAsync(ct);
 
