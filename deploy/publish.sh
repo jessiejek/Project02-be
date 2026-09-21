@@ -110,16 +110,19 @@ echo "    NB: this does not include App_Data/uploads, which grows separately at 
 echo "==> Dropping app_offline.htm (releases IIS's file locks before the overwrite)..."
 TMP_OFFLINE="$(mktemp)"
 echo "<html><body>Deploying, back in a moment&hellip;</body></html>" > "$TMP_OFFLINE"
-curl -sS --connect-timeout 15 --max-time 120 --ftp-create-dirs -T "$TMP_OFFLINE" \
+curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-all-errors --ftp-create-dirs -T "$TMP_OFFLINE" \
   "ftp://${FTP_HOST}:${FTP_PORT}${FTP_REMOTE_DIR}/app_offline.htm" \
   --user "${FTP_USER}:${FTP_PASS}"
 rm -f "$TMP_OFFLINE"
 
+# Free FTP hosts drop the odd transfer (curl exit 18, "partial file"). Without retries one
+# dropped file aborted the script AFTER app_offline.htm went up, leaving production showing
+# "Deploying, back in a moment" until someone re-ran the deploy by hand.
 echo "==> Uploading to ftp://${FTP_HOST}:${FTP_PORT}${FTP_REMOTE_DIR}/ ..."
 cd "$PUBLISH_DIR"
 while IFS= read -r rel; do
   echo "    $rel"
-  curl -sS --connect-timeout 15 --max-time 120 --ftp-create-dirs -T "$rel" \
+  curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-all-errors --ftp-create-dirs -T "$rel" \
     "ftp://${FTP_HOST}:${FTP_PORT}${FTP_REMOTE_DIR}/${rel}" \
     --user "${FTP_USER}:${FTP_PASS}"
 done < <(find . -type f | sed 's|^\./||')

@@ -1812,3 +1812,151 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911131216_Phase95FixEarningsViewCollectedAmount'
+)
+BEGIN
+    DROP VIEW IF EXISTS v_doctor_earnings;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911131216_Phase95FixEarningsViewCollectedAmount'
+)
+BEGIN
+
+    CREATE VIEW v_doctor_earnings AS
+    SELECT
+      b.doctor_id,
+      CONVERT(char(7), b.appointment_date, 126) AS period,
+      COUNT(DISTINCT b.booking_id) AS completed_visits,
+      COALESCE(SUM(b.total_fee), 0) AS gross_billed,
+      COALESCE(SUM(CASE WHEN pay.status = 'Paid' THEN COALESCE(pay.amount_received, pay.amount) ELSE 0 END), 0) AS collected,
+      COALESCE(SUM(CASE WHEN pay.status = 'Waived' THEN b.total_fee ELSE 0 END), 0) AS waived
+    FROM bookings b
+    LEFT JOIN payments pay ON pay.booking_id = b.booking_id
+    WHERE b.status = 'Completed'
+    GROUP BY b.doctor_id, CONVERT(char(7), b.appointment_date, 126);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911131216_Phase95FixEarningsViewCollectedAmount'
+)
+BEGIN
+    DROP VIEW IF EXISTS v_daily_booking_summary;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911131216_Phase95FixEarningsViewCollectedAmount'
+)
+BEGIN
+
+    CREATE VIEW v_daily_booking_summary AS
+    SELECT
+      b.appointment_date,
+      COUNT(*) AS total_bookings,
+      SUM(CASE WHEN b.status = 'Completed' THEN 1 ELSE 0 END) AS completed_count,
+      SUM(CASE WHEN pay.status = 'Paid' THEN 1 ELSE 0 END) AS paid_count,
+      SUM(CASE WHEN pay.status = 'Unpaid' THEN 1 ELSE 0 END) AS unpaid_count,
+      SUM(CASE WHEN b.status = 'NoShow' THEN 1 ELSE 0 END) AS no_show_count,
+      COALESCE(SUM(CASE WHEN pay.status = 'Paid' THEN COALESCE(pay.amount_received, pay.amount) ELSE 0 END), 0) AS revenue
+    FROM bookings b
+    LEFT JOIN payments pay ON pay.booking_id = b.booking_id
+    GROUP BY b.appointment_date;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911131216_Phase95FixEarningsViewCollectedAmount'
+)
+BEGIN
+    DROP VIEW IF EXISTS v_unpaid_completed_visits;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911131216_Phase95FixEarningsViewCollectedAmount'
+)
+BEGIN
+
+    CREATE VIEW v_unpaid_completed_visits AS
+    SELECT
+      b.booking_id,
+      b.patient_id,
+      p.patient_code,
+      p.first_name + ' ' + p.last_name AS patient_name,
+      b.doctor_id,
+      sa.full_name AS doctor_name,
+      b.appointment_date,
+      b.amount_due AS amount_due,
+      pay.status AS payment_status
+    FROM bookings b
+    JOIN patients p ON p.patient_id = b.patient_id
+    JOIN doctors d ON d.doctor_id = b.doctor_id
+    JOIN staff_accounts sa ON sa.staff_id = d.doctor_id
+    JOIN payments pay ON pay.booking_id = b.booking_id
+    WHERE b.status = 'Completed' AND pay.status = 'Unpaid';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260911131216_Phase95FixEarningsViewCollectedAmount'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([migration_id], [product_version])
+    VALUES (N'20260911131216_Phase95FixEarningsViewCollectedAmount', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260913115727_Phase96BookingCreatedBy'
+)
+BEGIN
+    ALTER TABLE [bookings] ADD [created_by_user_id] uniqueidentifier NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260913115727_Phase96BookingCreatedBy'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([migration_id], [product_version])
+    VALUES (N'20260913115727_Phase96BookingCreatedBy', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260918044940_Phase97QueueCounter'
+)
+BEGIN
+    CREATE TABLE [queue_counters] (
+        [date] date NOT NULL,
+        [value] int NOT NULL,
+        CONSTRAINT [pk_queue_counters] PRIMARY KEY ([date])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [migration_id] = N'20260918044940_Phase97QueueCounter'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([migration_id], [product_version])
+    VALUES (N'20260918044940_Phase97QueueCounter', N'10.0.11');
+END;
+
+COMMIT;
+GO
+
