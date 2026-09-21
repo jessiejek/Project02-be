@@ -21,6 +21,8 @@ public record CreateBookingRequest(
 
 public record UpdateBookingStatusRequest(BookingStatus Status, string? Reason);
 
+public record CancelOwnBookingRequest(string? Reason);
+
 public record CreatePatientBookingRequest(DateOnly? AppointmentDate, VisitType? VisitType, string? Notes);
 
 [ApiController]
@@ -171,6 +173,33 @@ public class BookingsController(ClinicAppDbContext db) : ControllerBase
 
         var query = WithEmbeds().Where(b => b.PatientId == patientId).OrderByDescending(b => b.AppointmentDate);
         return Ok(await PageAsync(query, page, pageSize, ct));
+    }
+
+    /// <summary>A patient cancels their own booking before arriving. Only `Pending` (booked,
+    /// not yet checked in) can be cancelled here — once staff have checked them in it is the
+    /// clinic's queue, so changes go through staff. The row is kept as `Cancelled` (not
+    /// deleted) so history/audit stay intact, and `GetQueue` already hides cancelled rows.</summary>
+    [Authorize(Roles = "Patient")]
+    [HttpPut("{id:guid}/cancel")]
+    public async Task<IActionResult> CancelOwn(Guid id, CancelOwnBookingRequest? request, CancellationToken ct)
+    {
+        var patientId = await CurrentPatientIdAsync(ct);
+        if (patientId is null) return Forbid();
+
+        var booking = await db.Bookings.SingleOrDefaultAsync(b => b.BookingId == id && b.PatientId == patientId, ct);
+        if (booking is null) return NotFound();
+        if (booking.Status != BookingStatus.Pending)
+            return BadRequest(new { message = "Only a booking that hasn't been checked in yet can be cancelled." });
+
+        var userId = CurrentUserId();
+        booking.Status = BookingStatus.Cancelled;
+        booking.CancellationReason = string.IsNullOrWhiteSpace(request?.Reason) ? "Cancelled by patient" : request!.Reason.Trim();
+        booking.CancelledByUserId = userId;
+        booking.UpdatedAt = DateTimeOffset.UtcNow;
+        AuditLogWriter.Add(db, AuditEntityType.Booking, booking.BookingId, "Cancelled (patient)", userId,
+            $"Queue: {booking.QueueNumber}; Date: {booking.AppointmentDate:yyyy-MM-dd}");
+        await db.SaveChangesAsync(ct);
+        return Ok(new { booking_id = booking.BookingId, status = booking.Status.ToString() });
     }
 
     /// <summary>Online self-booking (§16.3 hybrid queue): a patient joins the same per-day
