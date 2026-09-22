@@ -227,6 +227,9 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
         if (b is null) return NotFound();
         var actor = await actors.ResolveAsync(User, ct);
         if (actor.IsDoctor && !actor.ActsAsDoctor(b.DoctorId)) return Forbid(); // a doctor only moves their own queue
+        var illegal = BookingStatusMachine.RejectReason(b.Status, status);
+        if (illegal is not null)
+            return BadRequest(new { message = illegal });
         b.Status = status;
         b.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);

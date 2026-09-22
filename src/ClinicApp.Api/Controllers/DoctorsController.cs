@@ -17,6 +17,8 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
     public async Task<ActionResult<List<Doctor>>> GetAll(CancellationToken ct)
     {
         var doctors = await db.Doctors.AsNoTracking().Include(d => d.StaffAccount).ToListAsync(ct);
+        if (!IsStaffAuthenticated())
+            foreach (var d in doctors) RedactForPublicCatalog(d);
         return Ok(doctors);
     }
 
@@ -60,7 +62,9 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
     public async Task<ActionResult<Doctor>> GetById(Guid id, CancellationToken ct)
     {
         var doctor = await db.Doctors.AsNoTracking().Include(d => d.StaffAccount).SingleOrDefaultAsync(d => d.DoctorId == id, ct);
-        return doctor is null ? NotFound() : Ok(doctor);
+        if (doctor is null) return NotFound();
+        if (!IsStaffAuthenticated()) RedactForPublicCatalog(doctor);
+        return Ok(doctor);
     }
 
     /// <summary>The logged-in doctor's own row (doctor-dashboard.page.ts, doctor-schedule.page.ts).</summary>
@@ -72,7 +76,7 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
         if (userId is null) return Unauthorized();
 
         var doctor = await db.Doctors.AsNoTracking().Include(d => d.StaffAccount)
-            .SingleOrDefaultAsync(d => d.StaffAccount.UserId == userId, ct);
+            .SingleOrDefaultAsync(d => d.StaffAccount != null && d.StaffAccount.UserId == userId, ct);
 
         return doctor is null ? NotFound() : Ok(doctor);
     }
@@ -82,6 +86,25 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
     [Authorize(Roles = "Admin")]
     [HttpGet("admin")]
     public Task<ActionResult<List<Doctor>>> GetAllForAdmin(CancellationToken ct) => GetAll(ct);
+
+
+    /// <summary>Public booking wizard may list doctors, but license / PTR / S2 and staff
+    /// contact details stay staff-authenticated only.</summary>
+    private static void RedactForPublicCatalog(Doctor d)
+    {
+        d.LicenseNumber = null;
+        d.PtrNumber = null;
+        d.S2Number = null;
+        if (d.StaffAccount is not null)
+        {
+            d.StaffAccount.Email = "";
+            d.StaffAccount.ContactNumber = null;
+        }
+    }
+
+    private bool IsStaffAuthenticated() =>
+        User.Identity?.IsAuthenticated == true &&
+        (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Doctor"));
 
     private Guid? CurrentUserId()
     {

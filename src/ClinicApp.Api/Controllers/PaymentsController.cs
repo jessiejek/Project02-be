@@ -1,6 +1,7 @@
 using ClinicApp.Api.Hubs;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
+using ClinicApp.Domain;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -41,6 +42,9 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.PaymentId == id, ct);
         if (payment is null) return NotFound();
+        var illegalConfirm = PaymentStatusMachine.RejectReason(payment.Status, PaymentStatus.Paid);
+        if (illegalConfirm is not null)
+            return BadRequest(new { message = illegalConfirm });
 
         payment.Status = PaymentStatus.Paid;
         payment.PaymentMethod = request.PaymentMethod;
@@ -85,6 +89,9 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
                 return StatusCode(StatusCodes.Status403Forbidden,
                     new { message = "Only the doctor can waive the professional fee." });
         }
+        var illegalWaive = PaymentStatusMachine.RejectReason(payment.Status, PaymentStatus.Waived);
+        if (illegalWaive is not null)
+            return BadRequest(new { message = illegalWaive });
 
         payment.Status = PaymentStatus.Waived;
         payment.WaivedReason = request.Reason;
@@ -119,6 +126,9 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.PaymentId == id, ct);
         if (payment is null) return NotFound();
+        var illegalRefund = PaymentStatusMachine.RejectReason(payment.Status, PaymentStatus.Refunded);
+        if (illegalRefund is not null)
+            return BadRequest(new { message = illegalRefund });
 
         payment.Status = PaymentStatus.Refunded;
         payment.RefundAmount = request.Amount;

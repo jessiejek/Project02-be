@@ -65,24 +65,13 @@ public class AuditLogsController(ClinicAppDbContext db, ActorResolver actors) : 
         return Ok(new PagedResult<AuditLog> { Items = items, TotalCount = total, Page = page, PageSize = pageSize });
     }
 
-    /// <summary>Written on consultation amend (contract §10, entity_type = Consultation).</summary>
-    [Authorize(Roles = "Doctor,Admin,Staff")]
+    /// <summary>Client-invented audit rows are no longer accepted. Controllers write
+    /// audit via <c>AuditLogWriter</c> on real mutations. Kept as 410 so old FE callers fail closed.</summary>
+    [Authorize(Roles = "Admin,Doctor,Staff")]
     [HttpPost]
-    public async Task<ActionResult<AuditLog>> Create(CreateAuditLogRequest req, CancellationToken ct)
-    {
-        var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        var row = new AuditLog
+    public IActionResult Create(CreateAuditLogRequest req) =>
+        StatusCode(StatusCodes.Status410Gone, new
         {
-            Id = Guid.NewGuid(),
-            EntityType = req.EntityType,
-            EntityId = req.EntityId,
-            Action = req.Action,
-            Details = req.Details,
-            PerformedByUserId = Guid.TryParse(sub, out var uid) ? uid : null,
-            PerformedAt = DateTimeOffset.UtcNow
-        };
-        db.AuditLogs.Add(row);
-        await db.SaveChangesAsync(ct);
-        return Ok(row);
-    }
+            message = "Audit rows are written by the server on real actions; client POST is disabled."
+        });
 }

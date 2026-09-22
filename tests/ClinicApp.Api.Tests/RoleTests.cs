@@ -29,9 +29,13 @@ public class RoleTests(ApiFixture api) : ApiTestBase(api)
     public async Task Only_admin_can_refund(string role)
     {
         var (_, payment) = await FreshBooking();
+        using var staff = StaffC();
+        await ShouldBe(HttpStatusCode.OK, await staff.PostAsync($"/api/payments/{payment}/confirm", ApiFactory.Body(new { payment_method = "Cash", amount_received = 450 })));
+        Assert.Equal(PaymentStatus.Paid, await PaymentStatusOf(payment));
+
         using var c = role switch { "Staff" => StaffC(), "Doctor" => DocA(), _ => F.Patient(W.PatientA) };
         await ShouldBe(HttpStatusCode.Forbidden, await c.PostAsync($"/api/payments/{payment}/refund", ApiFactory.Body(new { amount = 100, reason = "x" })));
-        Assert.Equal(PaymentStatus.Unpaid, await PaymentStatusOf(payment));
+        Assert.Equal(PaymentStatus.Paid, await PaymentStatusOf(payment));
 
         using var admin = Admin();
         await ShouldBe(HttpStatusCode.OK, await admin.PostAsync($"/api/payments/{payment}/refund", ApiFactory.Body(new { amount = 100, reason = "ok" })));
@@ -112,13 +116,23 @@ public class RoleTests(ApiFixture api) : ApiTestBase(api)
     public async Task Doctor_can_only_change_status_of_their_own_bookings()
     {
         var (booking, _) = await FreshBooking();
+        // Fresh fixtures start Completed (terminal); put the row into a state that can become NoShow.
+        await WithDb(async db =>
+        {
+            var b = await db.Bookings.SingleAsync(x => x.BookingId == booking);
+            b.Status = BookingStatus.CheckedIn;
+            await db.SaveChangesAsync();
+            return 0;
+        });
+
         using var docB = DocB();
         await ShouldBe(HttpStatusCode.Forbidden, await docB.PutAsync($"/api/bookings/{booking}/status", ApiFactory.Body(new { status = "NoShow" })));
         await ShouldBe(HttpStatusCode.Forbidden, await docB.PutAsync($"/api/queue/{booking}/no-show", null));
-        Assert.Equal(BookingStatus.Completed, await WithDb(db => db.Bookings.Where(b => b.BookingId == booking).Select(b => b.Status).SingleAsync()));
+        Assert.Equal(BookingStatus.CheckedIn, await WithDb(db => db.Bookings.Where(b => b.BookingId == booking).Select(b => b.Status).SingleAsync()));
 
         using var docA = DocA();
         await ShouldBe(HttpStatusCode.OK, await docA.PutAsync($"/api/bookings/{booking}/status", ApiFactory.Body(new { status = "NoShow" })));
+        Assert.Equal(BookingStatus.NoShow, await WithDb(db => db.Bookings.Where(b => b.BookingId == booking).Select(b => b.Status).SingleAsync()));
     }
 
     // ── audit logs ───────────────────────────────────────────────────────

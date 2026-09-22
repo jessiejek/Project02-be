@@ -1,6 +1,7 @@
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
+using ClinicApp.Domain;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -153,6 +154,10 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         if (actor.IsDoctor && !actor.ActsAsDoctor(booking.DoctorId)) return Forbid(); // a doctor only moves their own bookings
 
         var oldStatus = booking.Status;
+        var illegal = BookingStatusMachine.RejectReason(oldStatus, request.Status);
+        if (illegal is not null)
+            return BadRequest(new { message = illegal });
+
         booking.Status = request.Status;
         if (request.Status == BookingStatus.Cancelled)
         {

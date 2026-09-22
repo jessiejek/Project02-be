@@ -110,12 +110,21 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
             c = new Consultation { ConsultationId = Guid.NewGuid(), BookingId = bookingId, CreatedAt = now };
             db.Consultations.Add(c);
         }
-        else if (c.Status is ConsultationStatus.Completed or ConsultationStatus.Amended
-                 && req.Status is not (ConsultationStatus.Completed or ConsultationStatus.Amended))
+        else if (c.Status is ConsultationStatus.Completed or ConsultationStatus.Amended)
         {
-            // §17.3 #15 — a completed medical record is append-only: further
-            // changes must come through the Amended flow, never revert to Draft.
-            return Conflict(new { message = "A completed consultation can only be amended." });
+            // §17.3 #15 — a finalized record is append-only via Amended: it can never go back to
+            // Draft, and it can't be edited while still claiming to be "Completed".
+            if (req.Status == ConsultationStatus.Draft)
+                return Conflict(new { message = "A completed consultation can only be amended." });
+            if (req.Status == ConsultationStatus.Completed)
+            {
+                // Re-sending the same "Completed" save is a harmless retry / double-click (the doctor
+                // page's save is several calls, so a retry after a partial failure is normal): a no-op.
+                // Only *different* content has to go through Amend.
+                if (SameContent(c, req, ownerBooking)) return Ok(c);
+                return Conflict(new { message = "A completed consultation must be amended to change clinical content." });
+            }
+            // req.Status == Amended — allowed
         }
         c.PatientId = req.PatientId;
         c.DoctorId = req.DoctorId;
@@ -197,8 +206,28 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         if (consult is null) return NotFound(new { message = "Consultation not found." });
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(consult.DoctorId)) return Forbid();
 
-        var existing = db.ConsultationDiagnoses.Where(d => d.ConsultationId == id);
-        db.ConsultationDiagnoses.RemoveRange(existing);
+        // §17.3 #15 — the doctor page completes a visit as "save consultation as Completed", then
+        // "save diagnoses" moments later. So a freshly Completed consultation must still accept its
+        // diagnoses; once that completion window has passed the record is sealed and a change has to
+        // go through Amend (status Amended first). This never changes the consultation's status
+        // itself — completing stays Completed, amending stays Amended.
+        if (consult.Status == ConsultationStatus.Completed &&
+            (consult.CompletedAt is null || DateTimeOffset.UtcNow - consult.CompletedAt.Value > CompletionWindow))
+        {
+            return Conflict(new { message = "A completed consultation must be amended to change its diagnoses." });
+        }
+
+        var existingRows = await db.ConsultationDiagnoses.Where(d => d.ConsultationId == id).ToListAsync(ct);
+        if (consult.Status == ConsultationStatus.Amended)
+        {
+            var beforeText = DiagnosisText(existingRows.Select(d => (d.Icd10Code, d.CustomDescription, d.Type)));
+            var afterText = DiagnosisText(diagnoses.Select(d => (d.Icd10Code, d.CustomDescription, d.Type)));
+            var change = AuditLogWriter.DiffDetails(("Diagnoses", beforeText, afterText));
+            if (change is not null)
+                AuditLogWriter.Add(db, AuditEntityType.Consultation, id, "Diagnoses amended", CurrentUserId(), change);
+        }
+
+        db.ConsultationDiagnoses.RemoveRange(existingRows);
 
         var now = DateTimeOffset.UtcNow;
         foreach (var d in diagnoses)
@@ -215,6 +244,38 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         }
         await db.SaveChangesAsync(ct);
         return Ok(await db.ConsultationDiagnoses.AsNoTracking().Where(x => x.ConsultationId == id).ToListAsync(ct));
+    }
+
+    /// <summary>How long after completion a consultation still accepts its child rows (diagnoses)
+    /// without being amended — long enough for the doctor page's multi-call save and a retry,
+    /// short enough that a finished record is effectively sealed.</summary>
+    internal static readonly TimeSpan CompletionWindow = TimeSpan.FromMinutes(2);
+
+    private static string DiagnosisText(IEnumerable<(string? Code, string? Description, DiagnosisType Type)> rows) =>
+        string.Join("; ", rows
+            .Select(r => $"{r.Type}: {(string.IsNullOrWhiteSpace(r.Description) ? r.Code : r.Description)}")
+            .OrderBy(s => s, StringComparer.Ordinal));
+
+    /// <summary>True when re-saving <paramref name="req"/> would change nothing on the stored
+    /// consultation or on the fee-driving booking fields (same normalization as the save itself).</summary>
+    private static bool SameContent(Consultation c, UpsertConsultationRequest req, Booking booking)
+    {
+        static bool Eq(string? a, string? b) => (a ?? "") == (b ?? "");
+
+        var pfDecision = string.IsNullOrWhiteSpace(req.PfDecision) ? null : req.PfDecision.Trim();
+        var pfAmount = pfDecision == "Charge" ? req.PfAmount : null;
+        var pfReason = pfDecision == "Waive" ? (string.IsNullOrWhiteSpace(req.PfWaiveReason) ? null : req.PfWaiveReason.Trim()) : null;
+
+        var discount = req.DiscountCategory is null ? booking.DiscountCategory
+            : string.IsNullOrWhiteSpace(req.DiscountCategory) ? null : req.DiscountCategory.Trim();
+
+        return Eq(c.ChiefComplaint, req.ChiefComplaint) && Eq(c.Subjective, req.Subjective)
+            && Eq(c.Objective, req.Objective) && Eq(c.Assessment, req.Assessment)
+            && Eq(c.Plan, req.Plan) && Eq(c.DoctorNotes, req.DoctorNotes)
+            && Eq(c.PfDecision, pfDecision) && c.PfAmount == pfAmount && Eq(c.PfWaiveReason, pfReason)
+            && (req.VisitType is null || req.VisitType == booking.VisitType)
+            && (req.MedCertRequested is null || req.MedCertRequested == booking.MedCertRequested)
+            && Eq(booking.DiscountCategory, discount);
     }
 
     private Guid? CurrentUserId()
