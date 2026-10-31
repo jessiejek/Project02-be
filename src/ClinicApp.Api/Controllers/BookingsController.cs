@@ -25,6 +25,10 @@ public record UpdateBookingStatusRequest(BookingStatus Status, string? Reason);
 
 public record CancelOwnBookingRequest(string? Reason);
 
+public record RescheduleBookingRequest(DateOnly AppointmentDate, string? Reason);
+
+public record RescheduleBookingResponse(Guid OldBookingId, Guid NewBookingId, BookingStatus OldStatus, BookingStatus NewBookingStatus);
+
 public record CreatePatientBookingRequest(DateOnly? AppointmentDate, VisitType? VisitType, string? Notes);
 
 [ApiController]
@@ -220,6 +224,100 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         await db.SaveChangesAsync(ct);
         return Ok(new { booking_id = booking.BookingId, status = booking.Status.ToString() });
     }
+
+    //JJQR - AI (Oct 31, 2026)
+    /// <summary>Staff/admin reschedule: mark the current row <c>Rescheduled</c> and clone a new
+    /// booking on the requested date with a fresh queue number (audit-friendly).</summary>
+    [Authorize(Roles = "Admin,Staff")]
+    [HttpPut("{id:guid}/reschedule")]
+    public async Task<ActionResult<RescheduleBookingResponse>> Reschedule(Guid id, RescheduleBookingRequest request, CancellationToken ct)
+    {
+        var booking = await db.Bookings
+            .Include(b => b.BookingServices)
+            .SingleOrDefaultAsync(b => b.BookingId == id, ct);
+        if (booking is null) return NotFound();
+
+        var oldStatus = booking.Status;
+        var illegal = BookingStatusMachine.RejectReason(oldStatus, BookingStatus.Rescheduled);
+        if (illegal is not null)
+            return BadRequest(new { message = illegal });
+
+        if (request.AppointmentDate < ClinicApp.Domain.ClinicClock.Today)
+            return BadRequest(new { message = "Cannot reschedule to a past date." });
+
+        var userId = CurrentUserId();
+        var now = DateTimeOffset.UtcNow;
+        booking.Status = BookingStatus.Rescheduled;
+        booking.UpdatedAt = now;
+        if (!string.IsNullOrWhiteSpace(request.Reason))
+        {
+            var note = $"Rescheduled to {request.AppointmentDate:yyyy-MM-dd}: {request.Reason.Trim()}";
+            booking.Notes = string.IsNullOrWhiteSpace(booking.Notes) ? note : $"{booking.Notes}; {note}";
+        }
+
+        var newStatus = oldStatus switch
+        {
+            BookingStatus.Pending => BookingStatus.Pending,
+            BookingStatus.ProofSubmitted => BookingStatus.ProofSubmitted,
+            _ => BookingStatus.Confirmed,
+        };
+
+        var newId = Guid.NewGuid();
+        var newBooking = new Booking
+        {
+            BookingId = newId,
+            PatientId = booking.PatientId,
+            DoctorId = booking.DoctorId,
+            AppointmentDate = request.AppointmentDate,
+            SlotStartTime = booking.SlotStartTime,
+            SlotEndTime = booking.SlotEndTime,
+            Status = newStatus,
+            PaymentMode = booking.PaymentMode,
+            QueueNumber = await QueueSequencer.NextAsync(db, request.AppointmentDate, ct),
+            ConsultationFeeSnapshot = booking.ConsultationFeeSnapshot,
+            TotalFee = booking.TotalFee,
+            AmountDue = booking.AmountDue,
+            IsWalkIn = booking.IsWalkIn,
+            VisitType = booking.VisitType,
+            DiscountCategory = booking.DiscountCategory,
+            DiscountAmount = booking.DiscountAmount,
+            MedCertRequested = booking.MedCertRequested,
+            Notes = null,
+            CreatedByUserId = userId,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+
+        db.Bookings.Add(newBooking);
+        foreach (var line in booking.BookingServices)
+        {
+            db.BookingServices.Add(new BookingService
+            {
+                BookingId = newId,
+                ServiceId = line.ServiceId,
+                PriceAtBooking = line.PriceAtBooking,
+            });
+        }
+
+        db.Payments.Add(new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            BookingId = newId,
+            Amount = booking.TotalFee,
+            Status = PaymentStatus.Unpaid,
+            CreatedAt = now,
+            UpdatedAt = now,
+        });
+
+        AuditLogWriter.Add(db, AuditEntityType.Booking, booking.BookingId, "Rescheduled", userId,
+            $"→ {request.AppointmentDate:yyyy-MM-dd}; new booking {newId}");
+        AuditLogWriter.Add(db, AuditEntityType.Booking, newId, "Booked (reschedule)", userId,
+            $"From {booking.BookingId}; Queue: {newBooking.QueueNumber}");
+
+        await db.SaveChangesAsync(ct);
+        return Ok(new RescheduleBookingResponse(booking.BookingId, newId, BookingStatus.Rescheduled, newStatus));
+    }
+    //JJQR - END
 
     /// <summary>Online self-booking (§16.3 hybrid queue): a patient joins the same per-day
     /// FCFS queue walk-ins use, without visiting the clinic first. No slot picker, no

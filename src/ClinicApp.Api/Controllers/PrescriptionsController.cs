@@ -12,7 +12,10 @@ public record RxItemInput(
     string? Instruction, bool IsControlledSubstance,
     // §16.8 Form 1 — structured Rx-pad fields, all optional.
     string? Timing = null, string? MealRelation = null,
-    string? DurationKind = null, int? DurationValue = null, string? Indication = null);
+    string? DurationKind = null, int? DurationValue = null, string? Indication = null,
+    //JJQR - AI (Oct 31, 2026)
+    string? Route = null);
+//JJQR - END
 public record UpsertRxGroupRequest(Guid PatientId, Guid DoctorId, Guid BookingId, List<RxItemInput> Items);
 public record UpsertRxTemplateRequest(Guid DoctorId, string Title, bool IsSystemTemplate, List<RxItemInput> Items);
 public record FavoriteMedicineInput(Guid MedicineId, string GenericName, string Dosage, string Quantity, string? Instruction);
@@ -103,6 +106,9 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
                 Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance,
                 Timing = i.Timing, MealRelation = i.MealRelation,
                 DurationKind = i.DurationKind, DurationValue = i.DurationValue, Indication = i.Indication,
+                //JJQR - AI (Oct 31, 2026)
+                Route = i.Route,
+                //JJQR - END
                 CreatedAt = now
             });
         }

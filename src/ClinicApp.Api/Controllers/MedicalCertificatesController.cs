@@ -51,7 +51,9 @@ public class MedicalCertificatesController(ClinicAppDbContext db, ActorResolver 
     public async Task<ActionResult<MedicalCertificate>> GetByConsultation(Guid consultationId, CancellationToken ct)
     {
         var m = await db.MedicalCertificates.AsNoTracking().SingleOrDefaultAsync(x => x.ConsultationId == consultationId, ct);
-        if (m is null) return NotFound();
+        //JJQR - AI (Oct 31, 2026)
+        if (m is null) return NoContent();
+        //JJQR - END
         return (await actors.ResolveAsync(User, ct)).CanAccessPatient(m.PatientId) ? Ok(m) : NotFound();
     }
 
@@ -62,9 +64,11 @@ public class MedicalCertificatesController(ClinicAppDbContext db, ActorResolver 
             .Where(c => c.BookingId == bookingId)
             .Select(c => (Guid?)c.ConsultationId)
             .SingleOrDefaultAsync(ct);
-        if (consultationId is null) return NotFound();
+        //JJQR - AI (Oct 31, 2026)
+        if (consultationId is null) return NoContent();
         var m = await db.MedicalCertificates.AsNoTracking().SingleOrDefaultAsync(x => x.ConsultationId == consultationId, ct);
-        if (m is null) return NotFound();
+        if (m is null) return NoContent();
+        //JJQR - END
         return (await actors.ResolveAsync(User, ct)).CanAccessPatient(m.PatientId) ? Ok(m) : NotFound();
     }
 

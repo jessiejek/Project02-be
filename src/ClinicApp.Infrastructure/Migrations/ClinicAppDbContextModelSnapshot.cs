@@ -1676,6 +1676,53 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.HasAnnotation("Relational:JsonPropertyName", "patients");
                 });
 
+            modelBuilder.Entity("ClinicApp.Domain.Entities.PatientAllergy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Allergen")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("allergen");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsNkda")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_nkda");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("patient_id");
+
+                    b.Property<string>("Reaction")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("reaction");
+
+                    b.Property<string>("Severity")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("severity");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_patient_allergies");
+
+                    b.HasIndex("PatientId")
+                        .HasDatabaseName("ix_patient_allergies_patient_id");
+
+                    b.ToTable("patient_allergies", (string)null);
+
+                    b.HasAnnotation("Relational:JsonPropertyName", "patient_allergies");
+                });
+
             modelBuilder.Entity("ClinicApp.Domain.Entities.PatientDocument", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2128,6 +2175,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("quantity");
+
+                    b.Property<string>("Route")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("route");
 
                     b.Property<string>("Timing")
                         .HasColumnType("nvarchar(max)")
@@ -3013,6 +3064,18 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasConstraintName("fk_medical_certificates_patients_patient_id");
                 });
 
+            modelBuilder.Entity("ClinicApp.Domain.Entities.PatientAllergy", b =>
+                {
+                    b.HasOne("ClinicApp.Domain.Entities.Patient", "Patient")
+                        .WithMany("Allergies")
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_patient_allergies_patients_patient_id");
+
+                    b.Navigation("Patient");
+                });
+
             modelBuilder.Entity("ClinicApp.Domain.Entities.PatientDocument", b =>
                 {
                     b.HasOne("ClinicApp.Domain.Entities.Booking", "Booking")
@@ -3097,6 +3160,11 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Navigation("ConsultationDiagnoses");
 
                     b.Navigation("FollowUp");
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.Patient", b =>
+                {
+                    b.Navigation("Allergies");
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.PrescriptionGroup", b =>

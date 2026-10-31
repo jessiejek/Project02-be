@@ -14,6 +14,9 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     // Identity
     public DbSet<Profile> Profiles => Set<Profile>();
     public DbSet<Patient> Patients => Set<Patient>();
+    //JJQR - AI (Oct 31, 2026)
+    public DbSet<PatientAllergy> PatientAllergies => Set<PatientAllergy>();
+    //JJQR - END
     public DbSet<StaffAccount> StaffAccounts => Set<StaffAccount>();
     public DbSet<Doctor> Doctors => Set<Doctor>();
 
@@ -147,6 +150,16 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
             // schema.sql: patients.user_id uuid unique — nullable, so filtered.
             e.HasIndex(p => p.UserId).IsUnique().HasFilter("[user_id] IS NOT NULL");
         });
+
+        //JJQR - AI (Oct 31, 2026)
+        modelBuilder.Entity<PatientAllergy>(e =>
+        {
+            e.ToTable("patient_allergies");
+            e.HasKey(a => a.Id);
+            e.HasIndex(a => a.PatientId);
+            e.HasOne(a => a.Patient).WithMany(p => p.Allergies).HasForeignKey(a => a.PatientId).OnDelete(DeleteBehavior.Cascade);
+        });
+        //JJQR - END
 
         modelBuilder.Entity<StaffAccount>(e =>
         {

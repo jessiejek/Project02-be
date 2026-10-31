@@ -228,4 +228,16 @@ public class ConsultationFlowTests(ApiFixture api) : ApiTestBase(api)
         using var b = F.As(W.DoctorB, "Doctor");
         await ShouldBe(HttpStatusCode.Forbidden, await b.PutAsync($"/api/consultations/{id}/diagnoses", Dx("hijack")));
     }
+
+    //JJQR - AI (Oct 31, 2026)
+    [Fact]
+    public async Task Missing_medical_certificate_returns_NoContent_not_NotFound()
+    {
+        var booking = await NewBooking();
+        using var doc = DocA();
+        var consultId = await SaveOk(doc, booking, "Draft");
+        await ShouldBe(HttpStatusCode.NoContent, await doc.GetAsync($"/api/medical-certificates/by-consultation/{consultId}"));
+        await ShouldBe(HttpStatusCode.NoContent, await doc.GetAsync($"/api/medical-certificates/by-booking/{booking}"));
+    }
+    //JJQR - END
 }

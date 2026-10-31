@@ -77,7 +77,11 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         // A patient may only read their own row (RLS patients_select_own_or_staff); 404 for others.
         if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
 
-        var patient = await db.Patients.AsNoTracking().SingleOrDefaultAsync(p => p.PatientId == id, ct);
+        var patient = await db.Patients.AsNoTracking()
+            //JJQR - AI (Oct 31, 2026)
+            .Include(p => p.Allergies)
+            //JJQR - END
+            .SingleOrDefaultAsync(p => p.PatientId == id, ct);
         return patient is null ? NotFound() : Ok(patient);
     }
 
@@ -134,6 +138,63 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     [Authorize(Roles = "Admin,Staff,Doctor")]
     public async Task<ActionResult<List<PatientVaccination>>> GetVaccinations(Guid id, CancellationToken ct) =>
         Ok(await db.PatientVaccinations.AsNoTracking().Where(v => v.PatientId == id).OrderByDescending(v => v.AdministeredDate).ToListAsync(ct));
+
+    //JJQR - AI (Oct 31, 2026)
+    [HttpGet("{id:guid}/allergies")]
+    [Authorize(Roles = "Admin,Staff,Doctor")]
+    public async Task<ActionResult<List<PatientAllergy>>> GetAllergies(Guid id, CancellationToken ct)
+    {
+        if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        return Ok(await db.PatientAllergies.AsNoTracking()
+            .Where(a => a.PatientId == id)
+            .OrderBy(a => a.Allergen)
+            .ToListAsync(ct));
+    }
+
+    public record PatientAllergyInput(string Allergen, string? Reaction, string? Severity, bool IsNkda);
+
+    /// <summary>Replace all allergy rows for a patient (including NKDA sentinel rows).</summary>
+    [Authorize(Roles = "Admin,Staff,Doctor")]
+    [HttpPut("{id:guid}/allergies")]
+    public async Task<ActionResult<List<PatientAllergy>>> ReplaceAllergies(Guid id, [FromBody] List<PatientAllergyInput> payload, CancellationToken ct)
+    {
+        if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        if (!await db.Patients.AnyAsync(p => p.PatientId == id, ct)) return NotFound();
+
+        var existing = await db.PatientAllergies.Where(a => a.PatientId == id).ToListAsync(ct);
+        db.PatientAllergies.RemoveRange(existing);
+
+        var now = DateTimeOffset.UtcNow;
+        var rows = new List<PatientAllergy>();
+        foreach (var item in payload ?? [])
+        {
+            if (item.IsNkda)
+            {
+                rows.Add(new PatientAllergy
+                {
+                    Id = Guid.NewGuid(), PatientId = id, Allergen = "NKDA", IsNkda = true,
+                    CreatedAt = now, UpdatedAt = now,
+                });
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(item.Allergen)) continue;
+            rows.Add(new PatientAllergy
+            {
+                Id = Guid.NewGuid(),
+                PatientId = id,
+                Allergen = item.Allergen.Trim(),
+                Reaction = string.IsNullOrWhiteSpace(item.Reaction) ? null : item.Reaction.Trim(),
+                Severity = string.IsNullOrWhiteSpace(item.Severity) ? null : item.Severity.Trim(),
+                IsNkda = false,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
+        db.PatientAllergies.AddRange(rows);
+        await db.SaveChangesAsync(ct);
+        return Ok(await db.PatientAllergies.AsNoTracking().Where(a => a.PatientId == id).OrderBy(a => a.Allergen).ToListAsync(ct));
+    }
+    //JJQR - END
 
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, Patient payload, CancellationToken ct)

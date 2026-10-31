@@ -44,6 +44,11 @@ public class Patient : IHasUpdatedAt
     public int ConsentVersion { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+
+    //JJQR - AI (Oct 31, 2026)
+    [JsonPropertyName("patient_allergies")]
+    public ICollection<PatientAllergy> Allergies { get; set; } = new List<PatientAllergy>();
+    //JJQR - END
 }
 
 public class StaffAccount : IHasUpdatedAt

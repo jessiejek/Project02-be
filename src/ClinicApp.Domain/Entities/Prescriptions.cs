@@ -41,6 +41,9 @@ public class PrescriptionLineItem
     public string? DurationKind { get; set; }     // "days" | "weeks" | "months" | "ongoing"
     public int? DurationValue { get; set; }
     public string? Indication { get; set; }       // "for fever", "for cough", ...
+    //JJQR - AI (Oct 31, 2026)
+    public string? Route { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
 
     [JsonIgnore] public PrescriptionGroup Group { get; set; } = null!;
