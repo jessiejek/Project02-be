@@ -10,7 +10,9 @@ namespace ClinicApp.Infrastructure;
 /// Development-only. Creates the five login accounts from the Project02-fe
 /// <c>account-list.txt</c> — <c>users</c> + <c>profiles</c> only, with the
 /// <b>same ids and roles as the Supabase project</b> and a shared password
-/// (<see cref="DevPassword"/>).
+/// (<see cref="DevPassword"/>). Also idempotently seeds clinical templates:
+/// system <c>soap_templates</c>, medicines, prescription and medical certificate
+/// templates, per-doctor diagnosis templates, and SOAP phrases.
 ///
 /// The domain rows (<c>staff_accounts</c>, <c>doctors</c>, <c>patients</c>, …)
 /// are NOT seeded here — they are mirrored from Supabase with their real primary
@@ -19,7 +21,8 @@ namespace ClinicApp.Infrastructure;
 /// first startup. Until then login still works (the session falls back to the
 /// email as the display name).
 ///
-/// Idempotent: skips any user whose email already exists. Never runs outside
+/// Idempotent: skips any user whose email already exists; seeds clinical
+/// templates when missing. Never runs outside
 /// the Development environment (guarded in Program.cs).
 /// </summary>
 public static class DevDataSeeder
@@ -59,5 +62,650 @@ public static class DevDataSeeder
                 "Run scripts/dev/import-from-supabase.mjs to populate domain rows.",
                 created, DevPassword);
         }
+
+        //JJQR - AI (Oct 31, 2026)
+        var doctorId = await db.Doctors.Select(d => d.DoctorId).FirstOrDefaultAsync(ct);
+        if (doctorId == Guid.Empty)
+            doctorId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+        var systemSoapTemplates = new SoapTemplate[]
+        {
+            new()
+            {
+                Id = Guid.Parse("a1111111-1111-4111-8111-111111111101"),
+                Title = "Upper respiratory infection",
+                ChiefComplaint = "Cough, colds, and sore throat for several days.",
+                Subjective = "Patient reports runny nose, mild sore throat, and occasional dry cough. No high fever at home; appetite fair. No known sick contacts recently.",
+                Objective = "Alert, not in distress. Throat mildly erythematous without exudates. Lungs clear to auscultation. No cervical lymphadenopathy.",
+                Assessment = "Upper respiratory tract infection, likely viral.",
+                Plan = "Symptomatic care: increased fluids, rest, paracetamol PRN for fever or pain. Saline gargle for throat comfort. Return if fever persists beyond 3 days, worsening breathlessness, or chest pain.",
+            },
+            new()
+            {
+                Id = Guid.Parse("a1111111-1111-4111-8111-111111111102"),
+                Title = "Hypertension follow-up",
+                ChiefComplaint = "Follow-up for high blood pressure.",
+                Subjective = "On current antihypertensive regimen; reports good adherence. Occasional mild headaches; no chest pain, palpitations, or visual changes.",
+                Objective = "BP within clinic target range on repeat measurement. Heart regular rate and rhythm. No pedal edema.",
+                Assessment = "Essential hypertension, controlled on current therapy.",
+                Plan = "Continue present medications. Low-sodium diet and regular activity advised. Home BP log encouraged. Follow-up in 3 months or sooner if symptoms worsen.",
+            },
+            new()
+            {
+                Id = Guid.Parse("a1111111-1111-4111-8111-111111111103"),
+                Title = "Type 2 diabetes follow-up",
+                ChiefComplaint = "Routine diabetes check-up.",
+                Subjective = "Known type 2 diabetes on oral agents. No polyuria, polydipsia, or unexplained weight loss. Diet compliance moderate.",
+                Objective = "Well appearing. Feet inspected without ulcers; monofilament sensation grossly intact. Recent labs reviewed when available.",
+                Assessment = "Type 2 diabetes mellitus; glycemic control to be guided by recent HbA1c and fasting glucose.",
+                Plan = "Continue medications as prescribed. Reinforce balanced meals and portion control. Annual eye and foot screening reminders. Repeat HbA1c before next visit.",
+            },
+            new()
+            {
+                Id = Guid.Parse("a1111111-1111-4111-8111-111111111104"),
+                Title = "Acute gastroenteritis",
+                ChiefComplaint = "Diarrhea and vomiting since yesterday.",
+                Subjective = "Multiple loose stools and two episodes of vomiting. Mild abdominal cramping. Able to sip oral fluids; urine output slightly reduced.",
+                Objective = "Mild dry mucous membranes; capillary refill normal. Abdomen soft, mild diffuse tenderness, no guarding. No blood in stool reported.",
+                Assessment = "Acute gastroenteritis, likely viral; mild dehydration.",
+                Plan = "Oral rehydration solution in small frequent sips. Light diet when tolerated. Paracetamol for cramps or fever PRN. Seek care for bloody stools, persistent vomiting, or signs of severe dehydration.",
+            },
+            new()
+            {
+                Id = Guid.Parse("a1111111-1111-4111-8111-111111111105"),
+                Title = "Uncomplicated UTI",
+                ChiefComplaint = "Painful urination and urinary frequency.",
+                Subjective = "Dysuria and urgency for two days. No flank pain or fever. Not pregnant; no recent catheter use.",
+                Objective = "Afebrile; no costovertebral angle tenderness. Abdomen soft, non-tender.",
+                Assessment = "Uncomplicated urinary tract infection.",
+                Plan = "Empiric antibiotic course per local guideline for uncomplicated cystitis. Increase fluid intake. Complete full course. Return if fever, flank pain, or no improvement in 48 hours.",
+            },
+            new()
+            {
+                Id = Guid.Parse("a1111111-1111-4111-8111-111111111106"),
+                Title = "Annual physical / check-up",
+                ChiefComplaint = "Annual wellness visit.",
+                Subjective = "No acute complaints. Reviews sleep, diet, and exercise. Immunizations updated per record when applicable.",
+                Objective = "General survey unremarkable. Vital signs within age-appropriate limits. Basic PE including HEENT, heart, lungs, and abdomen documented.",
+                Assessment = "Health maintenance visit; no acute disease identified today.",
+                Plan = "Age-appropriate screening labs and vitals trend discussed. Lifestyle counseling on diet, activity, and sun protection. Return for interim concerns or next annual review.",
+            },
+            new()
+            {
+                Id = Guid.Parse("a1111111-1111-4111-8111-111111111107"),
+                Title = "Fever work-up",
+                ChiefComplaint = "Fever for two days.",
+                Subjective = "Intermittent fever with chills and body malaise. No clear focus yet; mild headache. No rash or travel history of note.",
+                Objective = "Febrile in clinic; otherwise stable vitals. Throat, ears, lungs, and skin examined for focus. No meningeal signs.",
+                Assessment = "Undifferentiated febrile illness; viral syndrome most likely pending course.",
+                Plan = "Paracetamol for fever and comfort. Adequate hydration and rest. Watch for localized symptoms or persistent fever beyond 3 days. CBC or other tests if no improvement or if red flags develop.",
+            },
+            new()
+            {
+                Id = Guid.Parse("a1111111-1111-4111-8111-111111111108"),
+                Title = "Prenatal check-up",
+                ChiefComplaint = "Routine prenatal visit.",
+                Subjective = "Pregnant patient in stated trimester; fetal movement felt. No bleeding, leaking fluid, or severe headache. Taking prescribed vitamins.",
+                Objective = "Fundal height and fetal heart rate appropriate for gestational age when checked. BP and weight recorded. No pedal edema.",
+                Assessment = "Intrauterine pregnancy; routine prenatal care.",
+                Plan = "Continue prenatal vitamins and iron if indicated. Discuss warning signs: bleeding, decreased fetal movement, severe headache, or visual changes. Schedule next prenatal visit per protocol.",
+            },
+        };
+
+        var templatesCreated = 0;
+        foreach (var template in systemSoapTemplates)
+        {
+            if (await db.SoapTemplates.AnyAsync(t => t.Id == template.Id, ct)) continue;
+
+            template.DoctorId = doctorId;
+            template.IsSystemTemplate = true;
+            template.CreatedAt = now;
+            template.UpdatedAt = now;
+            db.SoapTemplates.Add(template);
+            templatesCreated++;
+        }
+
+        if (templatesCreated > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("DevDataSeeder: created {Count} system SOAP template(s).", templatesCreated);
+        }
+        //JJQR - END
+
+        //JJQR - AI (Oct 31, 2026)
+        static Guid DerivePerDoctorId(Guid baseId, Guid doctorId)
+        {
+            var b = baseId.ToByteArray();
+            var d = doctorId.ToByteArray();
+            for (var i = 0; i < 16; i++)
+                b[i] = (byte)(b[i] ^ d[i]);
+            return new Guid(b);
+        }
+
+        static Guid G(string s) => Guid.Parse(s);
+
+        var ownerDoctorId = await db.Doctors.Select(d => d.DoctorId).FirstOrDefaultAsync(ct);
+        if (ownerDoctorId == Guid.Empty)
+            ownerDoctorId = Guid.Parse("00000000-0000-0000-0000-000000000001");
+
+        var staffDoctorIds = await (
+            from sa in db.StaffAccounts
+            join u in db.Users on sa.UserId equals u.Id
+            where u.Email == "doctor@clinic.test" || u.Email == "phase5doctor@clinic.test"
+            select sa.StaffId).Distinct().ToListAsync(ct);
+
+        var doctorIds = staffDoctorIds
+            .Union(await db.Doctors.Select(d => d.DoctorId).ToListAsync(ct))
+            .Distinct()
+            .ToList();
+        if (doctorIds.Count == 0)
+            doctorIds = [ownerDoctorId];
+
+        var medicinesCreated = 0;
+        foreach (var (medId, genericName) in new (Guid Id, string Name)[]
+        {
+            (G("22222222-0000-0000-0000-000000000016"), "NITROFURANTOIN 100MG CAP"),
+            (G("22222222-0000-0000-0000-000000000017"), "ORAL REHYDRATION SALTS (ORS) SACHET"),
+            (G("22222222-0000-0000-0000-000000000018"), "FERROUS SULFATE + FOLIC ACID TAB"),
+            (G("22222222-0000-0000-0000-000000000019"), "CALCIUM CARBONATE 500MG TAB"),
+        })
+        {
+            if (await db.Medicines.AnyAsync(m => m.MedicineId == medId, ct)) continue;
+            db.Medicines.Add(new Medicine { MedicineId = medId, GenericName = genericName, CreatedAt = now });
+            medicinesCreated++;
+        }
+
+        var med = new Dictionary<Guid, string>
+        {
+            [G("22222222-0000-0000-0000-000000000001")] = "PARACETAMOL 500MG TAB",
+            [G("22222222-0000-0000-0000-000000000004")] = "LOPERAMIDE 2MG CAP",
+            [G("22222222-0000-0000-0000-000000000006")] = "CETIRIZINE 10MG TAB",
+            [G("22222222-0000-0000-0000-000000000008")] = "METFORMIN 500MG TAB",
+            [G("22222222-0000-0000-0000-000000000010")] = "ASCORBIC ACID + MULTIVITAMINS 500MG TAB",
+            [G("22222222-0000-0000-0000-000000000012")] = "AMLODIPINE 5MG TAB",
+            [G("22222222-0000-0000-0000-000000000016")] = "NITROFURANTOIN 100MG CAP",
+            [G("22222222-0000-0000-0000-000000000017")] = "ORAL REHYDRATION SALTS (ORS) SACHET",
+            [G("22222222-0000-0000-0000-000000000018")] = "FERROUS SULFATE + FOLIC ACID TAB",
+            [G("22222222-0000-0000-0000-000000000019")] = "CALCIUM CARBONATE 500MG TAB",
+        };
+
+        var rxTemplatesCreated = 0;
+        var rxItemsCreated = 0;
+        var rxItemSeq = 101;
+        foreach (var (templateId, title, lines) in new (Guid TemplateId, string Title, (Guid MedId, string Dosage, string Qty, string Instruction)[] Lines)[]
+        {
+            (G("b1111111-1111-4111-8111-111111111101"), "Upper respiratory infection",
+            [
+                (G("22222222-0000-0000-0000-000000000001"), "500mg", "20", "PO 1 tab q6h PRN fever/pain x 5 days"),
+                (G("22222222-0000-0000-0000-000000000006"), "10mg", "10", "PO 1 tab OD x 10 days"),
+            ]),
+            (G("b1111111-1111-4111-8111-111111111102"), "Hypertension follow-up",
+            [(G("22222222-0000-0000-0000-000000000012"), "5mg", "30", "PO 1 tab OD x 30 days")]),
+            (G("b1111111-1111-4111-8111-111111111103"), "Type 2 diabetes follow-up",
+            [(G("22222222-0000-0000-0000-000000000008"), "500mg", "60", "PO 1 tab BID with meals x 30 days")]),
+            (G("b1111111-1111-4111-8111-111111111104"), "Acute gastroenteritis",
+            [
+                (G("22222222-0000-0000-0000-000000000017"), "1 sachet", "10", "Dissolve in 200mL water; sip frequently x 3 days"),
+                (G("22222222-0000-0000-0000-000000000004"), "2mg", "8", "PO 1 cap after each loose stool; max 8/day x 2 days"),
+            ]),
+            (G("b1111111-1111-4111-8111-111111111105"), "Uncomplicated UTI",
+            [(G("22222222-0000-0000-0000-000000000016"), "100mg", "14", "PO 1 cap BID x 7 days")]),
+            (G("b1111111-1111-4111-8111-111111111106"), "Annual physical / check-up",
+            [(G("22222222-0000-0000-0000-000000000010"), "500mg", "30", "PO 1 tab OD x 30 days")]),
+            (G("b1111111-1111-4111-8111-111111111107"), "Fever work-up",
+            [(G("22222222-0000-0000-0000-000000000001"), "500mg", "20", "PO 1 tab q6h PRN fever x 5 days")]),
+            (G("b1111111-1111-4111-8111-111111111108"), "Prenatal check-up",
+            [
+                (G("22222222-0000-0000-0000-000000000018"), "—", "30", "PO 1 tab OD x 30 days"),
+                (G("22222222-0000-0000-0000-000000000019"), "500mg", "60", "PO 1 tab BID x 30 days"),
+            ]),
+        })
+        {
+            if (!await db.PrescriptionTemplates.AnyAsync(t => t.TemplateId == templateId, ct))
+            {
+                db.PrescriptionTemplates.Add(new PrescriptionTemplate
+                {
+                    TemplateId = templateId,
+                    DoctorId = ownerDoctorId,
+                    Title = title,
+                    IsSystemTemplate = true,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+                rxTemplatesCreated++;
+            }
+
+            foreach (var line in lines)
+            {
+                var itemId = G($"b2111111-1111-4111-8111-111111111{rxItemSeq++:D3}");
+                if (await db.PrescriptionTemplateItems.AnyAsync(i => i.Id == itemId, ct)) continue;
+
+                db.PrescriptionTemplateItems.Add(new PrescriptionTemplateItem
+                {
+                    Id = itemId,
+                    TemplateId = templateId,
+                    MedicineId = line.MedId,
+                    GenericName = med[line.MedId],
+                    Dosage = line.Dosage,
+                    Quantity = line.Qty,
+                    Instruction = line.Instruction,
+                    IsControlledSubstance = false,
+                    CreatedAt = now,
+                });
+                rxItemsCreated++;
+            }
+        }
+
+        var mcCreated = 0;
+        foreach (var (id, title, diagnosis, recs, purpose) in new (Guid Id, string Title, string Diagnosis, string Recs, string Purpose)[]
+        {
+            (G("c1111111-1111-4111-8111-111111111101"), "Fit to work",
+                "Recovered from minor illness; clinically stable.",
+                "May resume usual work duties.",
+                "Fit to work certification."),
+            (G("c1111111-1111-4111-8111-111111111102"), "Rest days (3 days)",
+                "Acute febrile illness requiring rest.",
+                "Advised home rest for three (3) calendar days.",
+                "Medical leave / sick leave."),
+            (G("c1111111-1111-4111-8111-111111111103"), "School excuse",
+                "Acute illness; advised to stay home.",
+                "Excused from school until symptoms improve and afebrile for 24 hours.",
+                "School absence excuse."),
+            (G("c1111111-1111-4111-8111-111111111104"), "Medical clearance",
+                "No active contagious disease identified on examination.",
+                "Cleared for requested activity per employer or school requirements.",
+                "Pre-employment or pre-enrollment medical clearance."),
+            (G("c1111111-1111-4111-8111-111111111105"), "Prenatal excuse / ANC leave",
+                "Routine prenatal checkup; patient advised to attend antenatal care.",
+                "Advised rest and attendance at scheduled ANC visits as indicated.",
+                "School or work absence for antenatal care (ANC)."),
+            (G("c1111111-1111-4111-8111-111111111106"), "Maternity rest",
+                "Pregnancy-related condition requiring reduced activity.",
+                "Advised home rest for the prescribed number of calendar days.",
+                "Maternity leave / pregnancy-related medical rest."),
+        })
+        {
+            if (await db.MedicalCertificateTemplates.AnyAsync(t => t.Id == id, ct)) continue;
+            db.MedicalCertificateTemplates.Add(new MedicalCertificateTemplate
+            {
+                Id = id,
+                DoctorId = ownerDoctorId,
+                Title = title,
+                IsSystemTemplate = true,
+                DiagnosisText = diagnosis,
+                Recommendations = recs,
+                PurposeException = purpose,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            mcCreated++;
+        }
+
+        var diagnosisDefs = new (Guid BaseId, string Label, string Body)[]
+        {
+            (G("d1111111-1111-4111-8111-111111111101"), "J06.9 — Acute URI",
+                "Acute upper respiratory infection, likely viral; no signs of lower tract involvement."),
+            (G("d1111111-1111-4111-8111-111111111102"), "I10 — Essential hypertension",
+                "Essential (primary) hypertension; blood pressure at goal on current regimen."),
+            (G("d1111111-1111-4111-8111-111111111103"), "E11.9 — Type 2 DM",
+                "Type 2 diabetes mellitus without complications; glycemic control per recent labs."),
+            (G("d1111111-1111-4111-8111-111111111104"), "A09 — Infectious gastroenteritis",
+                "Acute infectious gastroenteritis, presumed viral; mild dehydration."),
+            (G("d1111111-1111-4111-8111-111111111105"), "N39.0 — UTI",
+                "Urinary tract infection, site not specified; uncomplicated cystitis."),
+            (G("d1111111-1111-4111-8111-111111111106"), "Z00.0 — General adult exam",
+                "General adult medical examination without abnormal findings."),
+            (G("d1111111-1111-4111-8111-111111111107"), "R50.9 — Fever",
+                "Fever, unspecified; no clear focus on initial evaluation."),
+            (G("d1111111-1111-4111-8111-111111111108"), "Z34.9 — Supervision of pregnancy",
+                "Supervision of normal pregnancy; routine prenatal care."),
+            (G("d1111111-1111-4111-8111-111111111109"), "J02.9 — Acute pharyngitis",
+                "Acute pharyngitis, unspecified; likely viral etiology."),
+            (G("d1111111-1111-4111-8111-111111111110"), "K21.9 — GERD",
+                "Gastro-esophageal reflux disease without esophagitis; symptoms controlled."),
+        };
+
+        var dxCreated = 0;
+        for (var di = 0; di < doctorIds.Count; di++)
+        {
+            var docId = doctorIds[di];
+            foreach (var (baseId, label, body) in diagnosisDefs)
+            {
+                var id = di == 0 ? baseId : DerivePerDoctorId(baseId, docId);
+                if (await db.DoctorDiagnosisTemplates.AnyAsync(t => t.Id == id, ct)) continue;
+                if (await db.DoctorDiagnosisTemplates.AnyAsync(t => t.DoctorId == docId && t.Label == label, ct)) continue;
+
+                db.DoctorDiagnosisTemplates.Add(new DoctorDiagnosisTemplate
+                {
+                    Id = id,
+                    DoctorId = docId,
+                    Label = label,
+                    Body = body,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+                dxCreated++;
+            }
+        }
+
+        var phraseDefs = new (Guid BaseId, SoapField Field, string Label, string Body)[]
+        {
+            (G("e1111111-1111-4111-8111-111111111101"), SoapField.ChiefComplaint, "Cough and colds", "Cough, runny nose, and sore throat for several days."),
+            (G("e1111111-1111-4111-8111-111111111102"), SoapField.ChiefComplaint, "Fever", "Intermittent fever with body malaise for 2 days."),
+            (G("e1111111-1111-4111-8111-111111111103"), SoapField.Subjective, "Denies red flags", "Denies dyspnea, chest pain, hemoptysis, or altered sensorium."),
+            (G("e1111111-1111-4111-8111-111111111104"), SoapField.Subjective, "No sick contacts", "No known sick contacts; no recent travel."),
+            (G("e1111111-1111-4111-8111-111111111105"), SoapField.Subjective, "Symptom onset", "Symptoms began gradually about 3 days ago."),
+            (G("e1111111-1111-4111-8111-111111111106"), SoapField.Subjective, "Hydration OK", "Able to eat and drink; urine output normal."),
+            (G("e1111111-1111-4111-8111-111111111107"), SoapField.Objective, "Lungs clear", "Lungs clear to auscultation bilaterally; no wheezes or crackles."),
+            (G("e1111111-1111-4111-8111-111111111108"), SoapField.Objective, "Throat exam", "Oropharynx mildly erythematous; no tonsillar exudates."),
+            (G("e1111111-1111-4111-8111-111111111109"), SoapField.Objective, "Stable vitals", "Alert, not in distress; vital signs stable for age."),
+            (G("e1111111-1111-4111-8111-111111111110"), SoapField.Objective, "No lymphadenopathy", "No significant cervical lymphadenopathy."),
+            (G("e1111111-1111-4111-8111-111111111111"), SoapField.Assessment, "Viral URI", "Viral upper respiratory infection, likely self-limited."),
+            (G("e1111111-1111-4111-8111-111111111112"), SoapField.Assessment, "HTN controlled", "Essential hypertension, controlled on current therapy."),
+            (G("e1111111-1111-4111-8111-111111111113"), SoapField.Plan, "Symptomatic care", "Symptomatic care: fluids, rest, paracetamol PRN."),
+            (G("e1111111-1111-4111-8111-111111111114"), SoapField.Plan, "Return precautions", "Return if fever persists >3 days, worsening breathlessness, or new red flags."),
+            (G("e1111111-1111-4111-8111-111111111115"), SoapField.Plan, "Continue meds", "Continue present medications; routine follow-up as scheduled."),
+        };
+
+        var phrasesCreated = 0;
+        for (var di = 0; di < doctorIds.Count; di++)
+        {
+            var docId = doctorIds[di];
+            foreach (var (baseId, field, label, body) in phraseDefs)
+            {
+                var id = di == 0 ? baseId : DerivePerDoctorId(baseId, docId);
+                if (await db.SoapPhrases.AnyAsync(p => p.Id == id, ct)) continue;
+                if (await db.SoapPhrases.AnyAsync(p => p.DoctorId == docId && p.Field == field && p.Label == label, ct)) continue;
+
+                db.SoapPhrases.Add(new SoapPhrase
+                {
+                    Id = id,
+                    DoctorId = docId,
+                    Field = field,
+                    Label = label,
+                    Body = body,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+                phrasesCreated++;
+            }
+        }
+
+        if (medicinesCreated + rxTemplatesCreated + rxItemsCreated + mcCreated + dxCreated + phrasesCreated > 0)
+            await db.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "DevDataSeeder: clinical templates — medicines {Medicines}, rx templates {RxTemplates}, rx items {RxItems}, medical certs {Mc}, diagnoses {Dx}, SOAP phrases {Phrases}.",
+            medicinesCreated, rxTemplatesCreated, rxItemsCreated, mcCreated, dxCreated, phrasesCreated);
+
+        var icd10Defs = new (string Code, string Description)[]
+        {
+            ("Z34.0", "Supervision of normal first pregnancy"),
+            ("Z34.8", "Supervision of other normal pregnancy"),
+            ("Z34.9", "Supervision of normal pregnancy, unspecified"),
+            ("Z39.2", "Encounter for routine postpartum follow-up"),
+            ("O80", "Encounter for full-term uncomplicated delivery"),
+            ("O82", "Encounter for cesarean delivery without indication"),
+            ("O13.9", "Gestational hypertension without significant proteinuria, unspecified trimester"),
+            ("O14.90", "Unspecified pre-eclampsia, unspecified trimester"),
+            ("O24.419", "Gestational diabetes mellitus in pregnancy, unspecified control"),
+            ("O99.210", "Obesity complicating pregnancy, unspecified trimester"),
+            ("J02.9", "Acute pharyngitis, unspecified"),
+            ("A09", "Infectious gastroenteritis and colitis, unspecified"),
+            ("N39.0", "Urinary tract infection, site not specified"),
+            ("R50.9", "Fever, unspecified"),
+            ("J06.9", "Acute upper respiratory infection, unspecified"),
+            ("J21.9", "Acute bronchiolitis, unspecified"),
+            ("A90", "Dengue fever [classical dengue]"),
+            ("J45.909", "Unspecified asthma, uncomplicated"),
+            ("Z00.129", "Encounter for routine child health examination without abnormal findings"),
+        };
+
+        var icd10Created = 0;
+        foreach (var (code, description) in icd10Defs)
+        {
+            if (await db.Icd10Codes.AnyAsync(c => c.Code == code, ct)) continue;
+            db.Icd10Codes.Add(new Icd10Code { Code = code, Description = description });
+            icd10Created++;
+        }
+
+        var vitalDefs = new (Guid TemplateId, string FormKey, string Description, string Unit, string Icon)[]
+        {
+            (G("11111111-0000-0000-0000-000000000010"), "presentation", "Presentation", "", "baby"),
+            (G("11111111-0000-0000-0000-000000000011"), "fetal_movement", "Fetal Movement", "", "baby"),
+            (G("11111111-0000-0000-0000-000000000012"), "head_circumference", "Head Circumference (cm)", "cm", "ruler"),
+            (G("11111111-0000-0000-0000-000000000013"), "length", "Length (cm)", "cm", "ruler"),
+        };
+
+        var vitalsCreated = 0;
+        foreach (var (templateId, formKey, description, unit, icon) in vitalDefs)
+        {
+            if (await db.VitalFieldTemplates.AnyAsync(v => v.FormKey == formKey, ct)) continue;
+            db.VitalFieldTemplates.Add(new VitalFieldTemplate
+            {
+                TemplateId = templateId,
+                FormKey = formKey,
+                Description = description,
+                Unit = unit,
+                Icon = icon,
+                IsDefault = false,
+                CreatedAt = now,
+            });
+            vitalsCreated++;
+        }
+
+        if (icd10Created + vitalsCreated > 0)
+            await db.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "DevDataSeeder: lookup seeds — ICD-10 codes {Icd10}, vital field templates {Vitals}.",
+            icd10Created, vitalsCreated);
+        //JJQR - END
+
+        //JJQR - AI (Oct 31, 2026) — demo patients, bookings, labs (mirrors seed-review-fixes.sql)
+        var manilaToday = DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(8)).DateTime);
+
+        var demoDoctorId = await db.Doctors.Select(d => d.DoctorId).FirstOrDefaultAsync(ct);
+        if (demoDoctorId == Guid.Empty)
+            demoDoctorId = Guid.Parse("957B7400-D9A4-4892-87D1-5A1B5BEDFF4E");
+
+        var pedPatientId = G("f1111111-1111-4111-8111-111111111201");
+        var obPatientId = G("f1111111-1111-4111-8111-111111111202");
+        var eldPatientId = G("f1111111-1111-4111-8111-111111111203");
+
+        var patientsCreated = 0;
+        if (!await db.Patients.AnyAsync(p => p.PatientId == pedPatientId || p.PatientCode == "MF-PEDS02", ct))
+        {
+            db.Patients.Add(new Patient
+            {
+                PatientId = pedPatientId,
+                PatientCode = "MF-PEDS02",
+                FirstName = "Ana",
+                LastName = "Santos",
+                DateOfBirth = manilaToday.AddMonths(-24),
+                Sex = SexType.Female,
+                Email = "ana.peds@clinic.test",
+                EmergencyContactName = "Maria Santos",
+                EmergencyContactRelationship = "Mother",
+                GuardianName = "Maria Santos",
+                GuardianRelationship = "Mother",
+                IsGuest = false,
+                IsEmailVerified = true,
+                ConsentVersion = 1,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            patientsCreated++;
+        }
+
+        if (!await db.Patients.AnyAsync(p => p.PatientId == obPatientId || p.PatientCode == "MF-OB024", ct))
+        {
+            db.Patients.Add(new Patient
+            {
+                PatientId = obPatientId,
+                PatientCode = "MF-OB024",
+                FirstName = "Carla",
+                LastName = "Reyes",
+                DateOfBirth = manilaToday.AddYears(-28),
+                Sex = SexType.Female,
+                Email = "carla.ob@clinic.test",
+                IsPregnant = true,
+                LmpDate = manilaToday.AddDays(-168),
+                Gravida = 2,
+                Para = 1,
+                RhFactor = "Positive",
+                IsGuest = false,
+                IsEmailVerified = true,
+                ConsentVersion = 1,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            patientsCreated++;
+        }
+
+        if (!await db.Patients.AnyAsync(p => p.PatientId == eldPatientId || p.PatientCode == "MF-ELD70", ct))
+        {
+            db.Patients.Add(new Patient
+            {
+                PatientId = eldPatientId,
+                PatientCode = "MF-ELD70",
+                FirstName = "Ramon",
+                LastName = "Dela Cruz",
+                DateOfBirth = manilaToday.AddYears(-70),
+                Sex = SexType.Male,
+                Email = "ramon.eld@clinic.test",
+                LastCreatinineMgDl = 1.40m,
+                LastEgfr = 48,
+                LastRenalLabsDate = manilaToday.AddDays(-14),
+                IsGuest = false,
+                IsEmailVerified = true,
+                ConsentVersion = 1,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            patientsCreated++;
+        }
+
+        var allergiesCreated = 0;
+        var nkdaId = G("f3111111-1111-4111-8111-111111111201");
+        if (!await db.PatientAllergies.AnyAsync(a => a.Id == nkdaId, ct))
+        {
+            db.PatientAllergies.Add(new PatientAllergy
+            {
+                Id = nkdaId,
+                PatientId = pedPatientId,
+                Allergen = "NKDA",
+                IsNkda = true,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            allergiesCreated++;
+        }
+
+        var penicillinAllergyId = G("f3111111-1111-4111-8111-111111111203");
+        if (!await db.PatientAllergies.AnyAsync(a => a.Id == penicillinAllergyId, ct))
+        {
+            db.PatientAllergies.Add(new PatientAllergy
+            {
+                Id = penicillinAllergyId,
+                PatientId = eldPatientId,
+                Allergen = "AMOXICILLIN",
+                Reaction = "rash",
+                Severity = "Moderate",
+                IsNkda = false,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            allergiesCreated++;
+        }
+
+        var labValuesCreated = 0;
+        foreach (var (labId, testCode, value, unit, daysAgo) in new (Guid Id, string Code, decimal Val, string Unit, int DaysAgo)[]
+        {
+            (G("f4111111-1111-4111-8111-111111111301"), "HBA1C", 8.2m, "%", 30),
+            (G("f4111111-1111-4111-8111-111111111302"), "CREATININE", 1.40m, "mg/dL", 14),
+            (G("f4111111-1111-4111-8111-111111111303"), "LDL", 142m, "mg/dL", 30),
+            (G("f4111111-1111-4111-8111-111111111304"), "HDL", 38m, "mg/dL", 30),
+            (G("f4111111-1111-4111-8111-111111111305"), "TOTAL_CHOL", 210m, "mg/dL", 30),
+            (G("f4111111-1111-4111-8111-111111111306"), "TRIGLYCERIDES", 180m, "mg/dL", 30),
+            (G("f4111111-1111-4111-8111-111111111307"), "HBA1C", 7.6m, "%", 120),
+            (G("f4111111-1111-4111-8111-111111111308"), "CREATININE", 1.25m, "mg/dL", 120),
+        })
+        {
+            if (await db.PatientLabValues.AnyAsync(v => v.Id == labId, ct)) continue;
+            db.PatientLabValues.Add(new PatientLabValue
+            {
+                Id = labId,
+                PatientId = eldPatientId,
+                TestCode = testCode,
+                Value = value,
+                Unit = unit,
+                ObservedAt = manilaToday.AddDays(-daysAgo),
+                CreatedAt = now,
+            });
+            labValuesCreated++;
+        }
+
+        var bookingsCreated = 0;
+        foreach (var (bookingId, patientId, slotStart, slotEnd, queue) in new (Guid BookingId, Guid PatientId, TimeOnly Start, TimeOnly End, string Queue)[]
+        {
+            (G("f2111111-1111-4111-8111-111111111201"), pedPatientId, new TimeOnly(9, 0), new TimeOnly(9, 30), "P-01"),
+            (G("f2111111-1111-4111-8111-111111111202"), obPatientId, new TimeOnly(10, 0), new TimeOnly(10, 30), "P-02"),
+            (G("f2111111-1111-4111-8111-111111111203"), eldPatientId, new TimeOnly(11, 0), new TimeOnly(11, 30), "P-03"),
+        })
+        {
+            if (await db.Bookings.AnyAsync(b => b.BookingId == bookingId, ct)) continue;
+            db.Bookings.Add(new Booking
+            {
+                BookingId = bookingId,
+                PatientId = patientId,
+                DoctorId = demoDoctorId,
+                AppointmentDate = manilaToday,
+                SlotStartTime = slotStart,
+                SlotEndTime = slotEnd,
+                Status = BookingStatus.CheckedIn,
+                PaymentMode = PaymentMode.PayAtClinic,
+                VisitType = VisitType.FollowUp,
+                ConsultationFeeSnapshot = 500,
+                TotalFee = 500,
+                AmountDue = 500,
+                IsWalkIn = true,
+                QueueNumber = queue,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            bookingsCreated++;
+        }
+
+        var labCatalogCreated = 0;
+        foreach (var (catalogId, name, sortOrder) in new (Guid Id, string Name, int Sort)[]
+        {
+            (G("33333333-0000-0000-0000-000000000014"), "BLOOD TYPE + Rh", 14),
+            (G("33333333-0000-0000-0000-000000000015"), "HBsAg", 15),
+            (G("33333333-0000-0000-0000-000000000016"), "HIV", 16),
+            (G("33333333-0000-0000-0000-000000000017"), "SYPHILIS", 17),
+            (G("33333333-0000-0000-0000-000000000018"), "75g OGTT", 18),
+            (G("33333333-0000-0000-0000-000000000019"), "GBS CULTURE", 19),
+        })
+        {
+            if (await db.LabTestCatalog.AnyAsync(t => t.LabTestId == catalogId, ct)) continue;
+            db.LabTestCatalog.Add(new LabTestCatalog
+            {
+                LabTestId = catalogId,
+                Name = name,
+                IsDefault = false,
+                SortOrder = sortOrder,
+                CreatedAt = now,
+            });
+            labCatalogCreated++;
+        }
+
+        if (patientsCreated + allergiesCreated + labValuesCreated + bookingsCreated + labCatalogCreated > 0)
+            await db.SaveChangesAsync(ct);
+
+        logger.LogInformation(
+            "DevDataSeeder: review-fixes demo — patients {Patients}, allergies {Allergies}, lab values {LabValues}, bookings {Bookings}, ANC lab catalog {LabCatalog}.",
+            patientsCreated, allergiesCreated, labValuesCreated, bookingsCreated, labCatalogCreated);
+        //JJQR - END
     }
 }

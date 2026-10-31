@@ -194,6 +194,17 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         await db.SaveChangesAsync(ct);
         return Ok(await db.PatientAllergies.AsNoTracking().Where(a => a.PatientId == id).OrderBy(a => a.Allergen).ToListAsync(ct));
     }
+
+    [HttpGet("{id:guid}/lab-values")]
+    [Authorize(Roles = "Admin,Staff,Doctor")]
+    public async Task<ActionResult<List<PatientLabValue>>> GetLabValues(Guid id, CancellationToken ct)
+    {
+        if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        return Ok(await db.PatientLabValues.AsNoTracking()
+            .Where(v => v.PatientId == id)
+            .OrderByDescending(v => v.ObservedAt)
+            .ToListAsync(ct));
+    }
     //JJQR - END
 
     [HttpPut("{id:guid}")]

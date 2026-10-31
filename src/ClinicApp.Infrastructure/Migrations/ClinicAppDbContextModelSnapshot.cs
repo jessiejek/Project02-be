@@ -1600,6 +1600,18 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("first_name");
 
+                    b.Property<int?>("Gravida")
+                        .HasColumnType("int")
+                        .HasColumnName("gravida");
+
+                    b.Property<string>("GuardianName")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("guardian_name");
+
+                    b.Property<string>("GuardianRelationship")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("guardian_relationship");
+
                     b.Property<string>("HmoCardNumber")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("hmo_card_number");
@@ -1616,14 +1628,38 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_guest");
 
+                    b.Property<bool?>("IsPregnant")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_pregnant");
+
+                    b.Property<decimal?>("LastCreatinineMgDl")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("last_creatinine_mg_dl");
+
+                    b.Property<decimal?>("LastEgfr")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("last_egfr");
+
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("last_name");
 
+                    b.Property<DateOnly?>("LastRenalLabsDate")
+                        .HasColumnType("date")
+                        .HasColumnName("last_renal_labs_date");
+
+                    b.Property<DateOnly?>("LmpDate")
+                        .HasColumnType("date")
+                        .HasColumnName("lmp_date");
+
                     b.Property<string>("MiddleName")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("middle_name");
+
+                    b.Property<int?>("Para")
+                        .HasColumnType("int")
+                        .HasColumnName("para");
 
                     b.Property<string>("PatientCode")
                         .IsRequired()
@@ -1637,6 +1673,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("PwdIdNumber")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("pwd_id_number");
+
+                    b.Property<string>("RhFactor")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("rh_factor");
 
                     b.Property<string>("SeniorIdNumber")
                         .HasColumnType("nvarchar(max)")
@@ -1846,6 +1886,48 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasDatabaseName("ix_patient_lab_results_booking_id");
 
                     b.ToTable("patient_lab_results", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.PatientLabValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateOnly>("ObservedAt")
+                        .HasColumnType("date")
+                        .HasColumnName("observed_at");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("patient_id");
+
+                    b.Property<string>("TestCode")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("test_code");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("unit");
+
+                    b.Property<decimal>("Value")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_patient_lab_values");
+
+                    b.HasIndex("PatientId")
+                        .HasDatabaseName("ix_patient_lab_values_patient_id");
+
+                    b.ToTable("patient_lab_values", (string)null);
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.PatientVaccination", b =>
@@ -3098,6 +3180,16 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasConstraintName("fk_patient_lab_results_bookings_booking_id");
 
                     b.Navigation("Booking");
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.PatientLabValue", b =>
+                {
+                    b.HasOne("ClinicApp.Domain.Entities.Patient", null)
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_patient_lab_values_patients_patient_id");
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.Payment", b =>

@@ -119,6 +119,20 @@ public class Icd10Code
     public string Description { get; set; } = "";
 }
 
+//JJQR - AI (Oct 31, 2026)
+/// <summary>Structured numeric lab results per patient (e.g. HBA1C, CREATININE).</summary>
+public class PatientLabValue
+{
+    public Guid Id { get; set; }
+    public Guid PatientId { get; set; }
+    public string TestCode { get; set; } = "";
+    public decimal Value { get; set; }
+    public string Unit { get; set; } = "";
+    public DateOnly ObservedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+}
+//JJQR - END
+
 public class SoapPhrase : IHasUpdatedAt
 {
     public Guid Id { get; set; }

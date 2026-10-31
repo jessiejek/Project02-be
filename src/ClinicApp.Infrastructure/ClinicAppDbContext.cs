@@ -42,6 +42,9 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     public DbSet<ConsultationDiagnosis> ConsultationDiagnoses => Set<ConsultationDiagnosis>();
     public DbSet<VitalFieldTemplate> VitalFieldTemplates => Set<VitalFieldTemplate>();
     public DbSet<PatientVitalReading> PatientVitalReadings => Set<PatientVitalReading>();
+    //JJQR - AI (Oct 31, 2026)
+    public DbSet<PatientLabValue> PatientLabValues => Set<PatientLabValue>();
+    //JJQR - END
     public DbSet<FollowUp> FollowUps => Set<FollowUp>();
     public DbSet<Icd10Code> Icd10Codes => Set<Icd10Code>();
     public DbSet<SoapPhrase> SoapPhrases => Set<SoapPhrase>();
@@ -267,6 +270,15 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
             e.HasKey(r => r.Id);
             e.HasIndex(r => new { r.BookingId, r.TemplateId }).IsUnique(); // conflict key
         });
+
+        //JJQR - AI (Oct 31, 2026)
+        modelBuilder.Entity<PatientLabValue>(e =>
+        {
+            e.HasKey(v => v.Id);
+            e.HasIndex(v => v.PatientId);
+            e.HasOne<Patient>().WithMany().HasForeignKey(v => v.PatientId).OnDelete(DeleteBehavior.Cascade);
+        });
+        //JJQR - END
 
         modelBuilder.Entity<FollowUp>(e =>
         {

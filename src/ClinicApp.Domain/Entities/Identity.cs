@@ -46,6 +46,18 @@ public class Patient : IHasUpdatedAt
     public DateTimeOffset UpdatedAt { get; set; }
 
     //JJQR - AI (Oct 31, 2026)
+    public bool? IsPregnant { get; set; }
+    public DateOnly? LmpDate { get; set; }
+    public int? Gravida { get; set; }
+    public int? Para { get; set; }
+    /// <summary>"Positive" | "Negative" | null</summary>
+    public string? RhFactor { get; set; }
+    public string? GuardianName { get; set; }
+    public string? GuardianRelationship { get; set; }
+    public decimal? LastCreatinineMgDl { get; set; }
+    public decimal? LastEgfr { get; set; }
+    public DateOnly? LastRenalLabsDate { get; set; }
+
     [JsonPropertyName("patient_allergies")]
     public ICollection<PatientAllergy> Allergies { get; set; } = new List<PatientAllergy>();
     //JJQR - END
