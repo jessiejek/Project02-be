@@ -63,6 +63,47 @@ public static class DevDataSeeder
                 created, DevPassword);
         }
 
+        //JJQR - AI (Nov 19, 2026) - empty-database start: the dev doctor logins had no staff_accounts / doctors rows, so every later "first doctor" lookup
+        // fell back to a made-up GUID and the demo bookings insert crashed with an FK error. Seed the two doctor rows when (and only when) the database has no doctors at all,
+        // so a database imported from Supabase / restored from a backup is never touched.
+        if (!await db.Doctors.AnyAsync(ct))
+        {
+            var doctorAccounts = new (Guid UserId, string Email, string Name)[]
+            {
+                (Accounts[2].Id, Accounts[2].Email, "Dr. Demo Doctor"),
+                (Accounts[3].Id, Accounts[3].Email, "Dr. Phase5 Doctor"),
+            };
+            foreach (var (userId, email, name) in doctorAccounts)
+            {
+                if (await db.StaffAccounts.AnyAsync(a => a.StaffId == userId || a.UserId == userId, ct)) continue;
+                db.StaffAccounts.Add(new StaffAccount
+                {
+                    StaffId = userId,
+                    UserId = userId,
+                    FullName = name,
+                    Email = email,
+                    Role = StaffRole.Doctor,
+                    Status = StaffStatus.Active,
+                    InvitedAt = now,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+                db.Doctors.Add(new Doctor
+                {
+                    DoctorId = userId,
+                    Specialization = "General Medicine",
+                    ConsultationFee = 500,
+                    SlotDurationMinutes = 30,
+                    SlotCapacity = 1,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+            }
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("DevDataSeeder: database had no doctors - seeded {Count} demo doctor row(s).", doctorAccounts.Length);
+        }
+        //JJQR - END
+
         //JJQR - AI (Oct 31, 2026)
         var doctorId = await db.Doctors.Select(d => d.DoctorId).FirstOrDefaultAsync(ct);
         if (doctorId == Guid.Empty)
@@ -506,8 +547,9 @@ public static class DevDataSeeder
         var manilaToday = DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(8)).DateTime);
 
         var demoDoctorId = await db.Doctors.Select(d => d.DoctorId).FirstOrDefaultAsync(ct);
-        if (demoDoctorId == Guid.Empty)
-            demoDoctorId = Guid.Parse("957B7400-D9A4-4892-87D1-5A1B5BEDFF4E");
+        //JJQR - AI (Nov 19, 2026) - never insert bookings pointing at a doctor that does not exist (the old made-up fallback GUID broke fresh databases)
+        var seedDemoBookings = demoDoctorId != Guid.Empty;
+        //JJQR - END
 
         var pedPatientId = G("f1111111-1111-4111-8111-111111111201");
         var obPatientId = G("f1111111-1111-4111-8111-111111111202");
@@ -654,7 +696,7 @@ public static class DevDataSeeder
             (G("f2111111-1111-4111-8111-111111111203"), eldPatientId, new TimeOnly(11, 0), new TimeOnly(11, 30), "P-03"),
         })
         {
-            if (await db.Bookings.AnyAsync(b => b.BookingId == bookingId, ct)) continue;
+            if (!seedDemoBookings || await db.Bookings.AnyAsync(b => b.BookingId == bookingId, ct)) continue; //JJQR - AI (Nov 19, 2026)
             db.Bookings.Add(new Booking
             {
                 BookingId = bookingId,
