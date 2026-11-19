@@ -260,6 +260,50 @@ public class RoleTests(ApiFixture api) : ApiTestBase(api)
         await ShouldBe(HttpStatusCode.OK, await a.GetAsync($"/api/doctor-favorite-medicines?doctorId={W.DoctorA.RowId}"));
     }
 
+    //JJQR - AI (Nov 19, 2026) - Rx template ownership: cross-doctor + Staff leak
+    [Fact]
+    public async Task Doctors_cannot_read_or_change_each_others_private_rx_templates()
+    {
+        using var b = DocB();
+        await ShouldBe(HttpStatusCode.Forbidden, await b.GetAsync($"/api/prescription-templates?doctorId={W.DoctorA.RowId}"));
+        await ShouldBe(HttpStatusCode.Forbidden, await b.PutAsync($"/api/prescription-templates/{W.RxTemplateDoctorA}", ApiFactory.Body(new { doctor_id = W.DoctorB.RowId, title = "hijacked", is_system_template = false, items = Array.Empty<object>() })));
+        await ShouldBe(HttpStatusCode.Forbidden, await b.DeleteAsync($"/api/prescription-templates/{W.RxTemplateDoctorA}"));
+        await ShouldBe(HttpStatusCode.Forbidden, await b.PostAsync("/api/prescription-templates", ApiFactory.Body(new { doctor_id = W.DoctorA.RowId, title = "planted", is_system_template = false, items = Array.Empty<object>() })));
+
+        // Unfiltered list: B sees the system set but never A's private set.
+        var listB = await ListOf(await b.GetAsync("/api/prescription-templates"));
+        Assert.False(AnyValue(listB, "template_id", W.RxTemplateDoctorA));
+        Assert.True(AnyValue(listB, "template_id", W.RxTemplateSystem));
+        Assert.True(await WithDb(db => db.PrescriptionTemplates.AnyAsync(t => t.TemplateId == W.RxTemplateDoctorA && t.Title == "DoctorA private rx")));
+
+        using var a = DocA(); // control
+        var listA = await ListOf(await a.GetAsync("/api/prescription-templates"));
+        Assert.True(AnyValue(listA, "template_id", W.RxTemplateDoctorA));
+        Assert.True(AnyValue(listA, "template_id", W.RxTemplateSystem));
+    }
+
+    [Fact]
+    public async Task Staff_see_only_system_rx_templates()
+    {
+        using var staff = StaffC();
+        var plain = await ListOf(await staff.GetAsync("/api/prescription-templates"));
+        Assert.True(AnyValue(plain, "template_id", W.RxTemplateSystem));
+        Assert.False(AnyValue(plain, "template_id", W.RxTemplateDoctorA));
+
+        // Asking for a specific doctor must not widen it.
+        var forDoctor = await ListOf(await staff.GetAsync($"/api/prescription-templates?doctorId={W.DoctorA.RowId}"));
+        Assert.True(AnyValue(forDoctor, "template_id", W.RxTemplateSystem));
+        Assert.False(AnyValue(forDoctor, "template_id", W.RxTemplateDoctorA));
+
+        // Staff still cannot write them.
+        await ShouldBe(HttpStatusCode.Forbidden, await staff.DeleteAsync($"/api/prescription-templates/{W.RxTemplateDoctorA}"));
+
+        // Admin control: sees private sets.
+        using var admin = Admin();
+        Assert.True(AnyValue(await ListOf(await admin.GetAsync("/api/prescription-templates")), "template_id", W.RxTemplateDoctorA));
+    }
+    //JJQR - END
+
     [Fact]
     public async Task Only_admin_can_create_system_templates()
     {

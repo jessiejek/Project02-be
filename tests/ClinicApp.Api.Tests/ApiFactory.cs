@@ -105,6 +105,10 @@ public sealed class World
     public Guid LabResultB { get; init; }
     public Guid FavoriteDoctorA { get; init; }
     public Guid SoapTemplateDoctorA { get; init; }
+    //JJQR - AI (Nov 19, 2026) - Rx template ownership tests (private set + system set)
+    public Guid RxTemplateDoctorA { get; init; }
+    public Guid RxTemplateSystem { get; init; }
+    //JJQR - END
 
     public const string DocumentBContent = "PATIENT-B-SECRET-DOCUMENT";
     public const string DocumentAContent = "PATIENT-A-OWN-DOCUMENT";
@@ -222,6 +226,12 @@ public sealed class World
         db.DoctorFavoriteMedicines.Add(new DoctorFavoriteMedicine { Id = favorite, DoctorId = docA.RowId, MedicineId = medicineId, GenericName = "Paracetamol", Dosage = "500mg", Quantity = "10", CreatedAt = now });
         var soapTemplate = Guid.NewGuid();
         db.SoapTemplates.Add(new SoapTemplate { Id = soapTemplate, DoctorId = docA.RowId, Title = "DoctorA private", CreatedAt = now, UpdatedAt = now });
+        //JJQR - AI (Nov 19, 2026) - one private + one system Rx template (system rows are owned by a doctor row, like the seeder)
+        var rxTemplatePrivate = Guid.NewGuid();
+        var rxTemplateSystem = Guid.NewGuid();
+        db.PrescriptionTemplates.Add(new PrescriptionTemplate { TemplateId = rxTemplatePrivate, DoctorId = docA.RowId, Title = "DoctorA private rx", IsSystemTemplate = false, CreatedAt = now, UpdatedAt = now });
+        db.PrescriptionTemplates.Add(new PrescriptionTemplate { TemplateId = rxTemplateSystem, DoctorId = docA.RowId, Title = "System rx", IsSystemTemplate = true, CreatedAt = now, UpdatedAt = now });
+        //JJQR - END
 
         await db.SaveChangesAsync();
 
@@ -231,7 +241,10 @@ public sealed class World
             BookingA = bookingA, BookingB = bookingB, PaymentA = PaymentOf(bookingA), PaymentB = PaymentOf(bookingB),
             ConsultationA = consultA, ConsultationB = consultB, RxGroupA = rxA, RxGroupB = rxB, ReviewB = reviewB,
             DocumentA = docAId, DocumentB = docBId, LabResultA = labAId, LabResultB = labBId,
-            FavoriteDoctorA = favorite, SoapTemplateDoctorA = soapTemplate
+            FavoriteDoctorA = favorite, SoapTemplateDoctorA = soapTemplate,
+            //JJQR - AI (Nov 19, 2026)
+            RxTemplateDoctorA = rxTemplatePrivate, RxTemplateSystem = rxTemplateSystem
+            //JJQR - END
         };
     }
 

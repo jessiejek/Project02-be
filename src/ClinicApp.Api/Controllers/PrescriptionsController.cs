@@ -130,7 +130,10 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         }
 
         var q = db.PrescriptionTemplates.AsNoTracking().Include(t => t.Items).AsQueryable();
-        if (doctorId is not null) q = q.Where(t => t.DoctorId == doctorId || t.IsSystemTemplate);
+        //JJQR - AI (Nov 19, 2026) - Staff must never read a doctor's private Rx sets: system sets only
+        if (actor.IsStaff) q = q.Where(t => t.IsSystemTemplate);
+        else if (doctorId is not null) q = q.Where(t => t.DoctorId == doctorId || t.IsSystemTemplate);
+        //JJQR - END
         return Ok(await q.OrderBy(t => t.Title).ToListAsync(ct));
     }
 

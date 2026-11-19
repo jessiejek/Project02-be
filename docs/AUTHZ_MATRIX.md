@@ -117,7 +117,7 @@ trusted from the body. "Doctor own" = the booking's/consultation's `doctor_id` i
 | Resource | Patient | Staff | Doctor | Admin |
 |---|---|---|---|---|
 | `soap-phrases`, `soap-templates`, `medical-certificate-templates`, `doctor-diagnosis-templates` | — | — | own (+ system templates on read) | any |
-| `prescription-templates` | — | read | own (+ system) | any |
+| `prescription-templates` | — | read **system sets only** (JJQR - AI (Nov 19, 2026): private doctor sets are never returned to Staff) | own (+ system) | any |
 | `doctor-favorite-medicines` | — | — | own | any |
 | create/edit/delete a **system** template | — | — | — | ✔ |
 
@@ -156,6 +156,7 @@ Before this pass every route below was `[Authorize]` only — *any signed-in pat
 | 11 | `staff-accounts/{id}` readable by patients (admin/staff email, phone); `PUT` let Staff edit anyone's row incl. status (RLS: own or Admin) | active-Doctor rows or own; update own or Admin |
 | 12 | `prescription-templates`, `doctor-favorite-medicines` GET open to patients | staff-like / Doctor only |
 | 13 | A Doctor could change status / queue position of another doctor's bookings | Doctor limited to own |
+| 14 | `GET prescription-templates` returned **every doctor's private sets** to Staff (and any `?doctorId=`) | Staff get system sets only (JJQR - AI (Nov 19, 2026)); covered by `RoleTests.Staff_see_only_system_rx_templates...` |
 
 ## Decisions that differ from RLS (deliberate)
 
