@@ -120,6 +120,7 @@ trusted from the body. "Doctor own" = the booking's/consultation's `doctor_id` i
 | `prescription-templates` | — | read **system sets only** (JJQR - AI (Nov 19, 2026): private doctor sets are never returned to Staff) | own (+ system) | any |
 | `doctor-favorite-medicines` | — | — | own | any |
 | create/edit/delete a **system** template | — | — | — | ✔ |
+| `PUT soap-phrases/order`, `PUT doctor-favorite-medicines/order` (JJQR - AI (Nov 19, 2026)) | — | — | own — every id must belong to the doctor, otherwise **403** and nothing changes | any (acts as the doctor) |
 
 ## 8. Admin / reference
 
