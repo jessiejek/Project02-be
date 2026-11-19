@@ -832,6 +832,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("doctor_id");
 
+                    b.Property<string>("Icd10Code")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("icd10code");
+
                     b.Property<string>("Label")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
@@ -887,6 +891,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("quantity");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
 
                     b.HasKey("Id")
                         .HasName("pk_doctor_favorite_medicines");
@@ -2327,10 +2335,22 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("dosage");
 
+                    b.Property<string>("DurationKind")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("duration_kind");
+
+                    b.Property<int?>("DurationValue")
+                        .HasColumnType("int")
+                        .HasColumnName("duration_value");
+
                     b.Property<string>("GenericName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("generic_name");
+
+                    b.Property<string>("Indication")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("indication");
 
                     b.Property<string>("Instruction")
                         .HasColumnType("nvarchar(max)")
@@ -2339,6 +2359,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<bool>("IsControlledSubstance")
                         .HasColumnType("bit")
                         .HasColumnName("is_controlled_substance");
+
+                    b.Property<string>("MealRelation")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("meal_relation");
 
                     b.Property<Guid>("MedicineId")
                         .HasColumnType("uniqueidentifier")
@@ -2349,9 +2373,17 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("quantity");
 
+                    b.Property<string>("Route")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("route");
+
                     b.Property<Guid>("TemplateId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("template_id");
+
+                    b.Property<string>("Timing")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("timing");
 
                     b.HasKey("Id")
                         .HasName("pk_prescription_template_items");
@@ -2513,6 +2545,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("label");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
