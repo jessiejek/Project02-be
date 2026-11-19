@@ -29,6 +29,13 @@ public class FollowUpsController(ClinicAppDbContext db, ActorResolver actors) : 
             patientId = actor.PatientId;
         }
         else if (!actor.IsStaffLike) return Forbid();
+        //JJQR - AI (Nov 19, 2026) - a Doctor only ever lists their OWN rows: their id replaces whatever ?doctorId= says (Staff / Admin unchanged)
+        if (actor.IsDoctor)
+        {
+            if (actor.StaffId is not { } ownDoctor) return Forbid();
+            doctorId = ownDoctor;
+        }
+        //JJQR - END
 
         var q = db.FollowUps.AsNoTracking().AsQueryable();
         if (patientId is not null) q = q.Where(f => f.PatientId == patientId);

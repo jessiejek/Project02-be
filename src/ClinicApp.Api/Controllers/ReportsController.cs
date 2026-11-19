@@ -1,4 +1,6 @@
+using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
+using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,7 +14,7 @@ namespace ClinicApp.Api.Controllers;
 [ApiController]
 [Authorize] // authenticated; per-endpoint role gates below
 [Route("api/reports")]
-public class ReportsController(ClinicAppDbContext db) : ControllerBase
+public class ReportsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
 {
     // Multiple [Authorize] attributes are AND-ed, so a wider list here would
     // still be capped by a class-level Roles list — hence the class attr has none
@@ -26,20 +28,64 @@ public class ReportsController(ClinicAppDbContext db) : ControllerBase
     public async Task<ActionResult<List<VDoctorRating>>> GetDoctorRatings(CancellationToken ct) =>
         Ok(await db.VDoctorRatings.AsNoTracking().ToListAsync(ct));
 
+    //JJQR - AI (Nov 19, 2026) - Doctor callers only get THEIR rows. Staff / Admin keep the clinic-wide views untouched.
     [HttpGet("daily-booking-summary")]
     [Authorize(Roles = StaffReports)]
-    public async Task<ActionResult<List<VDailyBookingSummary>>> GetDailyBookingSummary(CancellationToken ct) =>
-        Ok(await db.VDailyBookingSummaries.AsNoTracking().ToListAsync(ct));
+    public async Task<ActionResult<List<VDailyBookingSummary>>> GetDailyBookingSummary(CancellationToken ct)
+    {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.IsDoctor) return Ok(await db.VDailyBookingSummaries.AsNoTracking().ToListAsync(ct));
+        if (actor.StaffId is not { } me) return Forbid();
+
+        // Same columns as v_daily_booking_summary, computed from this doctor's bookings (no migration).
+        var rows = await db.Bookings.AsNoTracking().Where(b => b.DoctorId == me)
+            .Select(b => new
+            {
+                b.AppointmentDate, b.Status,
+                PayStatus = b.Payment == null ? (PaymentStatus?)null : b.Payment.Status,
+                Amount = b.Payment == null ? (decimal?)null : b.Payment.Amount,
+                Received = b.Payment == null ? null : b.Payment.AmountReceived
+            }).ToListAsync(ct);
+        return Ok(rows.GroupBy(r => r.AppointmentDate).OrderBy(g => g.Key).Select(g => new VDailyBookingSummary
+        {
+            AppointmentDate = g.Key,
+            TotalBookings = g.Count(),
+            CompletedCount = g.Count(r => r.Status == BookingStatus.Completed),
+            PaidCount = g.Count(r => r.PayStatus == PaymentStatus.Paid),
+            UnpaidCount = g.Count(r => r.PayStatus == PaymentStatus.Unpaid),
+            NoShowCount = g.Count(r => r.Status == BookingStatus.NoShow),
+            Revenue = g.Where(r => r.PayStatus == PaymentStatus.Paid).Sum(r => r.Received ?? r.Amount ?? 0m)
+        }).ToList());
+    }
 
     [HttpGet("unpaid-completed-visits")]
     [Authorize(Roles = StaffReports)]
-    public async Task<ActionResult<List<VUnpaidCompletedVisit>>> GetUnpaidCompletedVisits(CancellationToken ct) =>
-        Ok(await db.VUnpaidCompletedVisits.AsNoTracking().ToListAsync(ct));
+    public async Task<ActionResult<List<VUnpaidCompletedVisit>>> GetUnpaidCompletedVisits(CancellationToken ct)
+    {
+        var actor = await actors.ResolveAsync(User, ct);
+        var q = db.VUnpaidCompletedVisits.AsNoTracking().AsQueryable();
+        if (actor.IsDoctor)
+        {
+            if (actor.StaffId is not { } me) return Forbid();
+            q = q.Where(v => v.DoctorId == me);
+        }
+        return Ok(await q.ToListAsync(ct));
+    }
 
     [HttpGet("pending-follow-ups")]
     [Authorize(Roles = StaffReports)]
-    public async Task<ActionResult<List<VPendingFollowUp>>> GetPendingFollowUps(CancellationToken ct) =>
-        Ok(await db.VPendingFollowUps.AsNoTracking().ToListAsync(ct));
+    public async Task<ActionResult<List<VPendingFollowUp>>> GetPendingFollowUps(CancellationToken ct)
+    {
+        var actor = await actors.ResolveAsync(User, ct);
+        var q = db.VPendingFollowUps.AsNoTracking().AsQueryable();
+        if (actor.IsDoctor)
+        {
+            if (actor.StaffId is not { } me) return Forbid();
+            q = q.Where(v => v.DoctorId == me);
+        }
+        return Ok(await q.ToListAsync(ct));
+    }
+    //JJQR - END
 
     /// <summary>§16.9 — monthly earnings for the single doctor. A Doctor caller
     /// only ever sees their own rows; Admin may pass ?doctorId= to scope, or omit

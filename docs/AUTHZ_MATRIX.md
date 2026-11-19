@@ -48,7 +48,7 @@ Legend: **own** = own row only · **any** = every row · **—** = denied · **a
 
 | Action | Patient | Staff | Doctor | Admin |
 |---|---|---|---|---|
-| `GET bookings` (list) | own (filter forced; other patient id → 403) | any | any | any |
+| `GET bookings` (list) | own (filter forced; other patient id → 403) | any | **own only** — `doctorId` forced to the login's doctor id, a passed one is ignored (JJQR - AI Nov 19, 2026) | any |
 | `GET bookings/{id}`, `bookings/me` | own | any | any | any |
 | `POST bookings`, `POST bookings/walk-in`, `POST queue` (walk-in) | — | ✔ | — | ✔ |
 | `POST bookings/book` (online self-booking) | ✔ (patient forced to self) | — | — | — |
@@ -79,12 +79,12 @@ trusted from the body. "Doctor own" = the booking's/consultation's `doctor_id` i
 
 | Resource | Read: Patient | Read: staff-like | Write |
 |---|---|---|---|
-| `consultations` (list, `{id}`, `by-booking`) | own | any | Doctor own / Admin (`PUT by-booking`) |
+| `consultations` (list, `{id}`, `by-booking`) | own | any (Doctor: **list = own only**; `{id}`/`by-booking` reads still any — see risk 11) | Doctor own / Admin (`PUT by-booking`) |
 | `consultations/{id}/diagnoses` | own | any | Doctor own / Admin |
-| `prescription-groups` (list, `{id}`) | own | any | Doctor own / Admin (upsert, delete) |
-| `lab-orders` (list, `by-consultation`, `by-booking`) | own | any | Doctor own / Admin |
-| `follow-ups` | own | any | Doctor own / Admin |
-| `medical-certificates` | own | any | Doctor own / Admin |
+| `prescription-groups` (list, `{id}`) | own | any (Doctor: **list = own only**) | Doctor own / Admin (upsert, delete) |
+| `lab-orders` (list, `by-consultation`, `by-booking`) | own | any (Doctor: **list = own only**) | Doctor own / Admin |
+| `follow-ups` | own | any (Doctor: **list = own only**) | Doctor own / Admin |
+| `medical-certificates` | own | any (Doctor: **list = own only**) | Doctor own / Admin |
 | `patient-vaccinations` (list, `by-consultation`) | own | any | consult replace: Doctor own / Admin; `POST`: Doctor, Staff, Admin |
 | `vitals` | own | any | Staff, Doctor, Admin (`PUT by-booking`, contract §16.1) |
 
@@ -135,6 +135,7 @@ trusted from the body. "Doctor own" = the booking's/consultation's `doctor_id` i
 | `services`, `doctor-services` read / write | ✔ / — | ✔ / — | ✔ / — | ✔ / ✔ | ✔ / — |
 | `medicines`, `vital-field-templates`, `lab-test-catalog`, `icd10-codes` (reference data) | ✔ | ✔ | ✔ | ✔ | ✔ (see risks) |
 | `reports/*` | `doctor-ratings` only | per endpoint | per endpoint | ✔ | — |
+| `reports/daily-booking-summary`, `unpaid-completed-visits`, `pending-follow-ups` (JJQR - AI Nov 19, 2026) | — | clinic-wide (unchanged) | **own only** — filtered by the login's doctor id; the daily summary is computed from their bookings (the SQL view is clinic-wide and used for Staff/Admin only) | clinic-wide | — |
 | `auth/invite`, `auth/users/{id}` DELETE | — | — | — | ✔ | — |
 
 ---
@@ -180,6 +181,8 @@ Before this pass every route below was `[Authorize]` only — *any signed-in pat
 9. SignalR hub group membership is derived from the JWT role/sub (already server-side); not re-audited here.
 10. **Old files**: rows imported from Supabase with absolute `file_url`s (https://…supabase…) are not resolvable by the new endpoint (→ 404). If any exist they need migrating into `App_Data/uploads`.
 
+11. **Doctor-scope is done for the six GET lists and three reports, NOT yet for single-item reads or payments** (JJQR - AI Nov 19, 2026). Still open, needs a policy decision: `GET bookings/{id}`, `consultations/{id}`, `consultations/by-booking`, `prescription-groups/{id}`, `lab-orders/by-*`, and `payments` reads/lists still let any Doctor read another doctor's record by id (RLS parity: staff-like read everything). `reports/doctor-earnings` is unchanged.
+
 ## Test map
 
 | Rule | Test |
@@ -191,6 +194,7 @@ Before this pass every route below was `[Authorize]` only — *any signed-in pat
 | Refund Admin-only; waive rules (Staff/Doctor/Admin); confirm Admin/Staff | `RoleTests` |
 | Doctor-vs-doctor writes, templates, favorites, schedules, booking status | `RoleTests` |
 | `GET doctor/performance`: anon 401, Staff/Patient 403, doctor sees only own numbers (spoofed `doctorId` ignored), admin needs `doctorId`; Manila day + Monday-week boundaries; refunded ≠ collected, paid-but-not-completed excluded; zero-filled 14-day series; lists bounded to 20 | `DoctorPerformanceTests` |
+| Doctor forced to own id on bookings / consultations / prescription-groups / lab-orders / medical-certificates / follow-ups lists (spoofed `doctorId` ignored); Staff & Admin unchanged; daily-booking-summary computed per doctor (revenue = Paid only), unpaid + follow-up reports scoped | `DoctorScopeTests` |
 | Consultation ids must match booking | `RoleTests` |
 | Audit trail scoping; staff-directory writes | `RoleTests` |
 | No public `/uploads`; `/file` auth; upload ownership; traversal; content-type; missing file | `FileAccessTests` |

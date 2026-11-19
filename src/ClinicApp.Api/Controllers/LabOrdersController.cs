@@ -39,6 +39,13 @@ public class LabOrdersController(ClinicAppDbContext db, ActorResolver actors) : 
         else if (!actor.IsStaffLike) return Forbid();
 
         var q = db.LabOrders.AsNoTracking().AsQueryable();
+        //JJQR - AI (Nov 19, 2026) - a Doctor only ever lists their OWN lab orders (Staff / Admin unchanged)
+        if (actor.IsDoctor)
+        {
+            if (actor.StaffId is not { } ownDoctor) return Forbid();
+            q = q.Where(l => l.DoctorId == ownDoctor);
+        }
+        //JJQR - END
         if (consultationId is not null) q = q.Where(l => l.ConsultationId == consultationId);
         if (patientId is not null) q = q.Where(l => l.PatientId == patientId);
         if (bookingId is not null)
