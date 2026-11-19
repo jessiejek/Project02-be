@@ -121,6 +121,7 @@ trusted from the body. "Doctor own" = the booking's/consultation's `doctor_id` i
 | `doctor-favorite-medicines` | — | — | own | any |
 | create/edit/delete a **system** template | — | — | — | ✔ |
 | `PUT soap-phrases/order`, `PUT doctor-favorite-medicines/order` (JJQR - AI (Nov 19, 2026)) | — | — | own — every id must belong to the doctor, otherwise **403** and nothing changes | any (acts as the doctor) |
+| `GET doctor/performance?period=today\|week\|month` (JJQR - AI (Nov 19, 2026)) — one aggregated read: patients, collected / billed / waived / refunded / unpaid (PHP, gross, completed visits only), trends vs the previous period, 14-day series, top diagnoses, unpaid + follow-up lists | **403** | **403** | **own only** — the doctor id comes from the login; a `?doctorId=` is **ignored** (never an error, never another doctor's data) | any, but **must** pass `?doctorId=` (400 without it, 404 for an unknown doctor) |
 
 ## 8. Admin / reference
 
@@ -189,6 +190,7 @@ Before this pass every route below was `[Authorize]` only — *any signed-in pat
 | Anonymous → 401; forged JWT → 401 | `IdorTests` |
 | Refund Admin-only; waive rules (Staff/Doctor/Admin); confirm Admin/Staff | `RoleTests` |
 | Doctor-vs-doctor writes, templates, favorites, schedules, booking status | `RoleTests` |
+| `GET doctor/performance`: anon 401, Staff/Patient 403, doctor sees only own numbers (spoofed `doctorId` ignored), admin needs `doctorId`; Manila day + Monday-week boundaries; refunded ≠ collected, paid-but-not-completed excluded; zero-filled 14-day series; lists bounded to 20 | `DoctorPerformanceTests` |
 | Consultation ids must match booking | `RoleTests` |
 | Audit trail scoping; staff-directory writes | `RoleTests` |
 | No public `/uploads`; `/file` auth; upload ownership; traversal; content-type; missing file | `FileAccessTests` |
