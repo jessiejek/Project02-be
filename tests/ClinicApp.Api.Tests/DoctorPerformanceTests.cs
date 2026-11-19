@@ -33,7 +33,8 @@ public class DoctorPerformanceTests(ApiFixture api) : ApiTestBase(api)
     {
         var now = DateTimeOffset.UtcNow;
         var id = Guid.NewGuid();
-        db.Patients.Add(new Patient { PatientId = id, PatientCode = "MF-" + id.ToString("N")[..10], FirstName = first, LastName = "Perf", DateOfBirth = new DateOnly(1990, 1, 1), Sex = SexType.Female, Email = $"{id:N}@test.local", ContactNumber = "0917", CreatedAt = now, UpdatedAt = now });
+        db.Patients.Add(new Patient { PatientId = id, PatientCode = "PF-" + id.ToString("N")[..10], //JJQR - AI (Nov 19, 2026) - was "MF-"+hex: a code of 10 pure digits (~1% per patient) became the new MAX for the sqlite code allocator and flaked PatientCodeTests. JJQR - END
+             FirstName = first, LastName = "Perf", DateOfBirth = new DateOnly(1990, 1, 1), Sex = SexType.Female, Email = $"{id:N}@test.local", ContactNumber = "0917", CreatedAt = now, UpdatedAt = now });
         await db.SaveChangesAsync();
         return id;
     });
