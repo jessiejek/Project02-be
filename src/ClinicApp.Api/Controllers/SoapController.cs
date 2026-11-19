@@ -9,6 +9,9 @@ using Microsoft.EntityFrameworkCore;
 namespace ClinicApp.Api.Controllers;
 
 public record SoapPhraseInput(SoapField Field, string Label, string Body);
+//JJQR - AI (Nov 19, 2026) - ids in the order the doctor wants them (phrases / favorites reorder)
+public record OrderInput(List<Guid> Ids);
+//JJQR - END
 public record SoapTemplateInput(string Title, bool IsSystemTemplate, string? ChiefComplaint, string? Subjective, string? Objective, string? Assessment, string? Plan);
 
 /// <summary>soap_phrases / soap_templates (contract §4) — doctor SOAP quick-insert tooling.</summary>
@@ -21,18 +24,50 @@ public class SoapController(ClinicAppDbContext db, ActorResolver actors) : Contr
     public async Task<ActionResult<List<SoapPhrase>>> GetPhrases([FromQuery] Guid doctorId, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
-        return Ok(await db.SoapPhrases.AsNoTracking().Where(p => p.DoctorId == doctorId).ToListAsync(ct));
+        //JJQR - AI (Nov 19, 2026) - doctor-chosen order first (sort_order), then label; JSON gains sort_order
+        return Ok(await db.SoapPhrases.AsNoTracking().Where(p => p.DoctorId == doctorId)
+            .OrderBy(p => p.SortOrder).ThenBy(p => p.Label).ToListAsync(ct));
+        //JJQR - END
     }
+
+    //JJQR - AI (Nov 19, 2026) - phrase text rules (server side): non-blank label + body, sane lengths
+    private ActionResult? ValidatePhrase(SoapPhraseInput input)
+    {
+        if (string.IsNullOrWhiteSpace(input.Label) || string.IsNullOrWhiteSpace(input.Body))
+            return BadRequest(new { message = "A phrase needs a name and text." });
+        if (input.Label.Trim().Length > 200) return BadRequest(new { message = "Phrase name is too long (max 200)." });
+        if (input.Body.Trim().Length > 4000) return BadRequest(new { message = "Phrase text is too long (max 4000)." });
+        return null;
+    }
+
+    /// <summary>PUT /api/soap-phrases/order?doctorId= — body {ids:[…]} sets sort_order 1..n in that order.
+    /// Every id must be one of the doctor's own phrases, otherwise 403 and nothing changes.</summary>
+    [HttpPut("soap-phrases/order")]
+    public async Task<IActionResult> ReorderPhrases([FromQuery] Guid doctorId, OrderInput input, CancellationToken ct)
+    {
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
+        var ids = (input.Ids ?? new()).Distinct().ToList();
+        var rows = await db.SoapPhrases.Where(p => ids.Contains(p.Id)).ToListAsync(ct);
+        if (rows.Count != ids.Count || rows.Any(p => p.DoctorId != doctorId)) return Forbid();
+        for (var i = 0; i < ids.Count; i++) rows.Single(p => p.Id == ids[i]).SortOrder = i + 1;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+    //JJQR - END
 
     [HttpPost("soap-phrases")]
     public async Task<ActionResult<SoapPhrase>> CreatePhrase([FromQuery] Guid doctorId, SoapPhraseInput input, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
+        //JJQR - AI (Nov 19, 2026) - validate + trim; new phrases go to the end of their field
+        if (ValidatePhrase(input) is { } bad) return bad;
+        var last = await db.SoapPhrases.Where(x => x.DoctorId == doctorId && x.Field == input.Field).MaxAsync(x => (int?)x.SortOrder, ct) ?? 0;
+        //JJQR - END
         var now = DateTimeOffset.UtcNow;
         var p = new SoapPhrase
         {
             Id = Guid.NewGuid(), DoctorId = doctorId, Field = input.Field,
-            Label = input.Label, Body = input.Body, CreatedAt = now, UpdatedAt = now
+            Label = input.Label.Trim(), Body = input.Body.Trim(), SortOrder = last + 1, CreatedAt = now, UpdatedAt = now
         };
         db.SoapPhrases.Add(p);
         await db.SaveChangesAsync(ct);
@@ -45,9 +80,14 @@ public class SoapController(ClinicAppDbContext db, ActorResolver actors) : Contr
         var p = await db.SoapPhrases.SingleOrDefaultAsync(x => x.Id == id, ct);
         if (p is null) return NotFound();
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(p.DoctorId)) return Forbid();
+        //JJQR - AI (Nov 19, 2026) - validate + trim; moving to another field puts it at the end of that field
+        if (ValidatePhrase(input) is { } bad) return bad;
+        if (p.Field != input.Field)
+            p.SortOrder = (await db.SoapPhrases.Where(x => x.DoctorId == p.DoctorId && x.Field == input.Field).MaxAsync(x => (int?)x.SortOrder, ct) ?? 0) + 1;
+        //JJQR - END
         p.Field = input.Field;
-        p.Label = input.Label;
-        p.Body = input.Body;
+        p.Label = input.Label.Trim();
+        p.Body = input.Body.Trim();
         p.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return Ok(p);

@@ -140,6 +140,9 @@ public class SoapPhrase : IHasUpdatedAt
     public SoapField Field { get; set; }
     public string Label { get; set; } = "";
     public string Body { get; set; } = "";
+    //JJQR - AI (Nov 19, 2026) - templates revamp: doctor-chosen order within a field (0 = never reordered; ties fall back to label)
+    public int SortOrder { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
@@ -185,6 +188,9 @@ public class DoctorDiagnosisTemplate : IHasUpdatedAt
     public Guid DoctorId { get; set; }
     public string Label { get; set; } = "";
     public string Body { get; set; } = "";
+    //JJQR - AI (Nov 19, 2026) - templates revamp: optional ICD-10 code (no FK; icd10_codes.code is a string key)
+    public string? Icd10Code { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

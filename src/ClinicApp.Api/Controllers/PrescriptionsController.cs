@@ -157,7 +157,12 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
             {
                 Id = Guid.NewGuid(), TemplateId = t.TemplateId, MedicineId = i.MedicineId,
                 GenericName = i.GenericName, Dosage = i.Dosage, Quantity = i.Quantity,
-                Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance, CreatedAt = now
+                Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance,
+                //JJQR - AI (Nov 19, 2026) - persist the structured Rx-pad fields instead of dropping them
+                Timing = i.Timing, MealRelation = i.MealRelation, DurationKind = i.DurationKind,
+                DurationValue = i.DurationValue, Indication = i.Indication, Route = i.Route,
+                //JJQR - END
+                CreatedAt = now
             });
         await db.SaveChangesAsync(ct);
         return Ok(await db.PrescriptionTemplates.AsNoTracking().Include(x => x.Items).SingleAsync(x => x.TemplateId == t.TemplateId, ct));
@@ -182,7 +187,12 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
             {
                 Id = Guid.NewGuid(), TemplateId = t.TemplateId, MedicineId = i.MedicineId,
                 GenericName = i.GenericName, Dosage = i.Dosage, Quantity = i.Quantity,
-                Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance, CreatedAt = now
+                Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance,
+                //JJQR - AI (Nov 19, 2026) - persist the structured Rx-pad fields instead of dropping them
+                Timing = i.Timing, MealRelation = i.MealRelation, DurationKind = i.DurationKind,
+                DurationValue = i.DurationValue, Indication = i.Indication, Route = i.Route,
+                //JJQR - END
+                CreatedAt = now
             });
         await db.SaveChangesAsync(ct);
         return Ok(await db.PrescriptionTemplates.AsNoTracking().Include(x => x.Items).SingleAsync(x => x.TemplateId == t.TemplateId, ct));
@@ -207,7 +217,10 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
     public async Task<ActionResult<List<DoctorFavoriteMedicine>>> GetFavorites([FromQuery] Guid doctorId, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
-        return Ok(await db.DoctorFavoriteMedicines.AsNoTracking().Where(f => f.DoctorId == doctorId).OrderBy(f => f.GenericName).ToListAsync(ct));
+        return Ok(await db.DoctorFavoriteMedicines.AsNoTracking().Where(f => f.DoctorId == doctorId)
+            //JJQR - AI (Nov 19, 2026) - doctor-chosen order first, then name (JSON gains sort_order)
+            .OrderBy(f => f.SortOrder).ThenBy(f => f.GenericName).ToListAsync(ct));
+            //JJQR - END
     }
 
     [Authorize(Roles = "Doctor,Admin")]
@@ -215,16 +228,34 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
     public async Task<ActionResult<DoctorFavoriteMedicine>> AddFavorite([FromQuery] Guid doctorId, FavoriteMedicineInput input, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
+        //JJQR - AI (Nov 19, 2026) - new favorites go to the end of the doctor's list
+        var last = await db.DoctorFavoriteMedicines.Where(x => x.DoctorId == doctorId).MaxAsync(x => (int?)x.SortOrder, ct) ?? 0;
+        //JJQR - END
         var f = new DoctorFavoriteMedicine
         {
             Id = Guid.NewGuid(), DoctorId = doctorId, MedicineId = input.MedicineId,
             GenericName = input.GenericName, Dosage = input.Dosage, Quantity = input.Quantity,
-            Instruction = input.Instruction, CreatedAt = DateTimeOffset.UtcNow
+            Instruction = input.Instruction, SortOrder = last + 1, CreatedAt = DateTimeOffset.UtcNow
         };
         db.DoctorFavoriteMedicines.Add(f);
         await db.SaveChangesAsync(ct);
         return Ok(f);
     }
+
+    //JJQR - AI (Nov 19, 2026) - PUT /api/doctor-favorite-medicines/order?doctorId= — body {ids:[…]}; own favorites only (403 otherwise, nothing changes)
+    [Authorize(Roles = "Doctor,Admin")]
+    [HttpPut("doctor-favorite-medicines/order")]
+    public async Task<IActionResult> ReorderFavorites([FromQuery] Guid doctorId, OrderInput input, CancellationToken ct)
+    {
+        if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
+        var ids = (input.Ids ?? new()).Distinct().ToList();
+        var rows = await db.DoctorFavoriteMedicines.Where(f => ids.Contains(f.Id)).ToListAsync(ct);
+        if (rows.Count != ids.Count || rows.Any(f => f.DoctorId != doctorId)) return Forbid();
+        for (var i = 0; i < ids.Count; i++) rows.Single(f => f.Id == ids[i]).SortOrder = i + 1;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+    //JJQR - END
 
     [Authorize(Roles = "Doctor,Admin")]
     [HttpPut("doctor-favorite-medicines/{id:guid}")]

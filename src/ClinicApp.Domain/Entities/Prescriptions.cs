@@ -58,6 +58,9 @@ public class DoctorFavoriteMedicine
     public string Dosage { get; set; } = "";
     public string Quantity { get; set; } = "";
     public string? Instruction { get; set; }
+    //JJQR - AI (Nov 19, 2026) - templates revamp: doctor-chosen order (0 = never reordered; ties fall back to name)
+    public int SortOrder { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
 }
 
@@ -84,6 +87,14 @@ public class PrescriptionTemplateItem
     public string Quantity { get; set; } = "";
     public string? Instruction { get; set; }
     public bool IsControlledSubstance { get; set; }
+    //JJQR - AI (Nov 19, 2026) - templates revamp: structured Rx-pad fields, same names/meaning as PrescriptionLineItem (all optional)
+    public string? Timing { get; set; }
+    public string? MealRelation { get; set; }
+    public string? DurationKind { get; set; }
+    public int? DurationValue { get; set; }
+    public string? Indication { get; set; }
+    public string? Route { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
 
     [JsonIgnore] public PrescriptionTemplate Template { get; set; } = null!;

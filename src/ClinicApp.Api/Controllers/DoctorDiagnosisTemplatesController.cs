@@ -7,7 +7,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
 
-public record DiagnosisTemplateInput(string Label, string Body);
+//JJQR - AI (Nov 19, 2026) - Icd10Code is optional (old callers that omit it keep working)
+public record DiagnosisTemplateInput(string Label, string Body, string? Icd10Code = null);
+//JJQR - END
 
 /// <summary>doctor_diagnosis_templates (§16.8) — a doctor's reusable free-text
 /// diagnoses, picked into the consultation Diagnosis section and managed on
@@ -33,6 +35,14 @@ public class DoctorDiagnosisTemplatesController(ClinicAppDbContext db) : Control
         }
         return doctorIdQuery; // Admin
     }
+
+    //JJQR - AI (Nov 19, 2026)
+    private static string? NormalizeIcd(string? code)
+    {
+        var c = code?.Trim();
+        return string.IsNullOrEmpty(c) ? null : (c.Length > 20 ? c[..20] : c);
+    }
+    //JJQR - END
 
     [HttpGet]
     public async Task<ActionResult<List<DoctorDiagnosisTemplate>>> GetAll([FromQuery] Guid? doctorId, CancellationToken ct)
@@ -60,6 +70,9 @@ public class DoctorDiagnosisTemplatesController(ClinicAppDbContext db) : Control
             DoctorId = did.Value,
             Label = input.Label.Trim(),
             Body = input.Body.Trim(),
+            //JJQR - AI (Nov 19, 2026)
+            Icd10Code = NormalizeIcd(input.Icd10Code),
+            //JJQR - END
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -80,6 +93,9 @@ public class DoctorDiagnosisTemplatesController(ClinicAppDbContext db) : Control
 
         t.Label = input.Label.Trim();
         t.Body = input.Body.Trim();
+        //JJQR - AI (Nov 19, 2026) - omitted/blank clears the code
+        t.Icd10Code = NormalizeIcd(input.Icd10Code);
+        //JJQR - END
         t.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return Ok(t);
