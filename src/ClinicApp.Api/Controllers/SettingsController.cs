@@ -48,9 +48,10 @@ public class SettingsController(ClinicAppDbContext db) : ControllerBase
             .Money("fee_med_cert", "Medical certificate fee", payload.FeeMedCert)
             .Range("discount_pct", "Discount", payload.DiscountPct, 0m, 1m);
         if (!Enum.IsDefined(payload.DefaultPaymentMode)) check.Fail("default_payment_mode", "Choose a valid default payment mode.");
-        // The consent version only ever moves forward, one published version at a time (an old client PUTting a stale value must not roll it back).
-        if (payload.ConsentVersion < settings.ConsentVersion || payload.ConsentVersion > settings.ConsentVersion + 1)
-            check.Fail("consent_version", "Consent version can only stay the same or go up by one.");
+        // The consent version only moves forward, one published version at a time. A LOWER number (a stale client, or a test restoring an
+        // old snapshot) is ignored rather than rolled back, because rolling back would silently void patients' re-consent.
+        if (payload.ConsentVersion > settings.ConsentVersion + 1)
+            check.Fail("consent_version", "Consent version can only go up by one at a time.");
         if (check.Result() is { } bad) return bad;
         // JJQR - END
 

@@ -74,7 +74,7 @@ public class SettingsRulesTests(ApiFixture api) : ApiTestBase(api)
     }
 
     [Fact]
-    public async Task Publishing_a_consent_version_is_stored_and_cannot_be_rolled_back_or_skipped()
+    public async Task Publishing_a_consent_version_is_stored_and_is_not_rolled_back_and_cannot_skip()
     {
         using var c = await AdminAsync();
         var before = await Current();
@@ -82,8 +82,8 @@ public class SettingsRulesTests(ApiFixture api) : ApiTestBase(api)
         Assert.Equal(before.ConsentVersion + 1, (await Current()).ConsentVersion);
         var json = await JsonOf(await c.GetAsync("/api/settings"));
         Assert.Equal(before.ConsentVersion + 1, json.GetProperty("consent_version").GetInt32());
-        // a stale client sending the old number must not roll it back; skipping ahead is refused too
-        await ShouldBe(HttpStatusCode.BadRequest, await c.PutAsync("/api/settings", Body(before)));
+        // a stale client sending the old number must not roll it back (it is ignored); skipping ahead is refused
+        await ShouldBe(HttpStatusCode.OK, await c.PutAsync("/api/settings", Body(before)));
         await ShouldBe(HttpStatusCode.BadRequest, await c.PutAsync("/api/settings", Body(before, d => d["consent_version"] = before.ConsentVersion + 5)));
         Assert.Equal(before.ConsentVersion + 1, (await Current()).ConsentVersion);
     }
