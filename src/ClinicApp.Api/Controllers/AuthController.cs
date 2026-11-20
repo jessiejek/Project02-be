@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using ClinicApp.Api.Auditing;
 using ClinicApp.Auth;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
@@ -24,16 +25,45 @@ public class AuthController(
     ITokenService tokenService,
     PasswordHasherService passwordHasher,
     IConfiguration configuration,
+    IHostEnvironment environment,
     IPatientCodeAllocator patientCodes) : ControllerBase
 {
     [HttpPost("login")]
     public async Task<ActionResult<AuthSessionDto>> Login(LoginRequest request, CancellationToken ct)
     {
         var user = await db.Users.SingleOrDefaultAsync(u => u.Email == request.Email.Trim().ToLower(), ct);
+
+        // JJQR - AI (Nov 20, 2026) - PV-3 / PV-5: lock after repeated wrong passwords, and write every sign-in and failure to the access log (no email or password in the log)
+        var nowUtc = DateTimeOffset.UtcNow;
+        if (user is not null && user.LockedUntil is { } until && until > nowUtc)
+        {
+            var minutes = Math.Max(1, (int)Math.Ceiling((until - nowUtc).TotalMinutes));
+            AuditLogWriter.Add(db, AuditEntityType.Auth, user.Id, "LoginBlocked", null, "Account is locked");
+            await db.SaveChangesAsync(ct);
+            return StatusCode(StatusCodes.Status423Locked, new { message = $"Too many failed sign-in attempts. Try again in {minutes} minute{(minutes == 1 ? "" : "s")}." });
+        }
         if (user is null || !passwordHasher.Verify(user, user.PasswordHash, request.Password))
         {
+            if (user is null)
+            {
+                AuditLogWriter.Add(db, AuditEntityType.Auth, Guid.Empty, "LoginFailed", null, "No such account");
+            }
+            else
+            {
+                user.FailedLoginCount++;
+                var locked = user.FailedLoginCount >= PasswordPolicy.MaxFailedLogins;
+                if (locked) { user.LockedUntil = nowUtc + PasswordPolicy.LockoutFor; user.FailedLoginCount = 0; }
+                AuditLogWriter.Add(db, AuditEntityType.Auth, user.Id, locked ? "AccountLocked" : "LoginFailed", null, "Wrong password");
+            }
+            await db.SaveChangesAsync(ct);
             return Unauthorized(new { message = "Invalid email or password." });
         }
+        if (user.FailedLoginCount != 0 || user.LockedUntil is not null)
+        {
+            user.FailedLoginCount = 0;
+            user.LockedUntil = null;
+        }
+        // JJQR - END
 
         // JJQR - AI (Nov 20, 2026) - B-32: a deactivated staff account must not get a session
         if (!await ClinicApp.Api.Security.AccountGuard.IsActiveAsync(db, user.Id, ct))
@@ -48,6 +78,10 @@ public class AuthController(
             return Problem("User has no profile/role assigned.", statusCode: 500);
         }
 
+        // JJQR - AI (Nov 20, 2026) - PV-5: successful sign-in
+        AuditLogWriter.Add(db, AuditEntityType.Auth, user.Id, "Login", user.Id);
+        await db.SaveChangesAsync(ct);
+        // JJQR - END
         return Ok(session);
     }
 
@@ -59,6 +93,17 @@ public class AuthController(
         {
             return Conflict(new { message = "An account with this email already exists." });
         }
+
+        // JJQR - AI (Nov 20, 2026) - PV-3 / B-01: password rule, valid email, sane name lengths
+        var registerCheck = new ClinicApp.Api.Validation.Check()
+            .Required("first_name", "First name", request.FirstName, 100)
+            .Required("last_name", "Last name", request.LastName, 100)
+            .Optional("middle_name", "Middle name", request.MiddleName, 100)
+            .Email("email", "Email", request.Email, required: true)
+            .Phone("contact_number", "Contact number", request.ContactNumber);
+        if (PasswordPolicy.Check(request.Password, email) is { } weak) registerCheck.Fail("password", weak);
+        if (registerCheck.Result() is { } invalidRegistration) return invalidRegistration;
+        // JJQR - END
 
         if (request.DateOfBirth is not { } dob || dob > ClinicApp.Domain.ClinicClock.Today || dob.Year < 1900)
         {
@@ -89,8 +134,10 @@ public class AuthController(
             Email = email,
             IsGuest = false,
             IsEmailVerified = false,
-            ConsentVersion = 1,
-            ConsentedAt = now,
+            // JJQR - AI (Nov 20, 2026) - PV-12: no pre-made consent; recorded below only if the patient ticked the box
+            ConsentVersion = 0,
+            ConsentedAt = null,
+            // JJQR - END
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -103,6 +150,17 @@ public class AuthController(
             db.Profiles.Add(profile);
             db.Patients.Add(patient);
         }, ct);
+
+        // JJQR - AI (Nov 20, 2026) - PV-12: dated, versioned consent record — only when the patient actively agreed
+        if (request.AcceptedPrivacyNotice)
+        {
+            var version = await db.ClinicSettings.AsNoTracking().Where(s => s.Id == 1).Select(s => (int?)s.ConsentVersion).SingleOrDefaultAsync(ct) ?? 1;
+            patient.ConsentVersion = version;
+            patient.ConsentedAt = now;
+            db.PatientConsents.Add(new PatientConsent { Id = Guid.NewGuid(), PatientId = patient.PatientId, ConsentVersion = version, Decision = ConsentDecision.Accepted, DecidedAt = now });
+            await db.SaveChangesAsync(ct);
+        }
+        // JJQR - END
 
         var session = await BuildSessionAsync(user, ct);
         return Ok(session);
@@ -186,7 +244,9 @@ public class AuthController(
 
             // TODO: wire real SMTP send using the Email:* settings in appsettings.json.
             // Logged instead of emailed until SMTP credentials are configured.
-            Console.WriteLine($"[AuthController] Password reset link for {email}: {resetLink}");
+            // JJQR - AI (Nov 20, 2026) - PV-9: a reset link is a credential — only ever printed on a developer machine, never in production logs
+            if (environment.IsDevelopment()) Console.WriteLine($"[AuthController] Password reset link for {email}: {resetLink}");
+            // JJQR - END
         }
 
         return Ok(new { message = "If that email is registered, a reset link has been sent." });
@@ -206,6 +266,11 @@ public class AuthController(
             return BadRequest(new { message = "This reset link is invalid or has expired." });
         }
 
+        // JJQR - AI (Nov 20, 2026) - PV-3: same password rule; a reset also clears any lockout
+        if (PasswordPolicy.Check(request.NewPassword, user.Email) is { } weakReset) return BadRequest(new { message = weakReset });
+        user.FailedLoginCount = 0;
+        user.LockedUntil = null;
+        // JJQR - END
         user.PasswordHash = passwordHasher.Hash(user, request.NewPassword);
         await db.SaveChangesAsync(ct);
 
@@ -227,6 +292,7 @@ public class AuthController(
         var user = await db.Users.FindAsync([userId.Value], ct);
         if (user is null) return Unauthorized();
 
+        if (PasswordPolicy.Check(request.NewPassword, user.Email) is { } weakSet) return BadRequest(new { message = weakSet }); // JJQR - AI (Nov 20, 2026) - PV-3
         user.PasswordHash = passwordHasher.Hash(user, request.NewPassword);
         user.MustSetPassword = false;
         await db.SaveChangesAsync(ct);
@@ -240,8 +306,10 @@ public class AuthController(
     [HttpPost("change-password")]
     public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
-            return BadRequest(new { message = "New password must be at least 6 characters." });
+        // JJQR - AI (Nov 20, 2026) - PV-3: was "at least 6 characters"; now the shared rule (checked again with the email below)
+        if (PasswordPolicy.Check(request.NewPassword) is { } weakChange)
+            return BadRequest(new { message = weakChange });
+        // JJQR - END
 
         var userId = CurrentUserId();
         if (userId is null) return Unauthorized();
@@ -251,6 +319,7 @@ public class AuthController(
 
         if (!passwordHasher.Verify(user, user.PasswordHash, request.CurrentPassword))
             return BadRequest(new { message = "Current password is incorrect." });
+        if (PasswordPolicy.Check(request.NewPassword, user.Email) is { } weakChangeEmail) return BadRequest(new { message = weakChangeEmail }); // JJQR - AI (Nov 20, 2026) - PV-3
 
         user.PasswordHash = passwordHasher.Hash(user, request.NewPassword);
         await db.SaveChangesAsync(ct);
@@ -267,7 +336,7 @@ public class AuthController(
         {
             var token = tokenService.CreatePurposeToken(user.Id, "email-verify", TimeSpan.FromDays(1));
             var clientBaseUrl = configuration["ClientBaseUrl"] ?? "http://localhost:3000";
-            Console.WriteLine($"[AuthController] Email verification link for {email}: {clientBaseUrl}/verify-email?token={Uri.EscapeDataString(token)}");
+            if (environment.IsDevelopment()) Console.WriteLine($"[AuthController] Email verification link for {email}: {clientBaseUrl}/verify-email?token={Uri.EscapeDataString(token)}"); // JJQR - AI (Nov 20, 2026) - PV-9
         }
         return Ok(new { message = "If that email is registered, a verification link has been sent." });
     }
