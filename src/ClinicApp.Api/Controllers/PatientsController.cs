@@ -275,20 +275,31 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         return Ok(patient);
     }
 
-    /// <summary>PATCH-style consent update per contract §10.</summary>
+    /// <summary>Consent acceptance per contract §10 (body = version number).
+    // JJQR - AI (Nov 20, 2026) - PV-2/PV-12: only the patient themself can consent for themself (staff could before), the version can't be one the clinic never published,
+    // and the decision is also written to the consent history. Declining / withdrawing: POST /api/patients/{id}/consent-decision.</summary>
     [HttpPut("{id:guid}/consent")]
     public async Task<IActionResult> UpdateConsent(Guid id, [FromBody] int consentVersion, CancellationToken ct)
     {
-        if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.IsPatient || actor.PatientId != id) return NotFound();
 
         var patient = await db.Patients.SingleOrDefaultAsync(p => p.PatientId == id, ct);
         if (patient is null) return NotFound();
 
+        var current = await db.ClinicSettings.AsNoTracking().Where(s => s.Id == 1).Select(s => (int?)s.ConsentVersion).SingleOrDefaultAsync(ct) ?? 1;
+        if (consentVersion < 1 || consentVersion > current) return BadRequest(new { message = "That privacy notice version does not exist." });
+
+        var now = DateTimeOffset.UtcNow;
         patient.ConsentVersion = consentVersion;
-        patient.ConsentedAt = DateTimeOffset.UtcNow;
+        patient.ConsentedAt = now;
+        patient.ConsentWithdrawnAt = null;
+        db.PatientConsents.Add(new PatientConsent { Id = Guid.NewGuid(), PatientId = id, ConsentVersion = consentVersion, Decision = ConsentDecision.Accepted, DecidedAt = now });
+        AuditLogWriter.Add(db, AuditEntityType.Patient, id, "ConsentAccepted", actor.UserId, $"Privacy notice v{consentVersion}");
         await db.SaveChangesAsync(ct);
         return Ok(patient);
     }
+    // JJQR - END
 
     private Guid? CurrentUserId()
     {
