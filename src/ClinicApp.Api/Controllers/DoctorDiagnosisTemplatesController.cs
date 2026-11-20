@@ -18,7 +18,7 @@ public record DiagnosisTemplateInput(string Label, string Body, string? Icd10Cod
 [ApiController]
 [Authorize(Roles = "Doctor,Admin")]
 [Route("api/doctor-diagnosis-templates")]
-public class DoctorDiagnosisTemplatesController(ClinicAppDbContext db) : ControllerBase
+public class DoctorDiagnosisTemplatesController(ClinicAppDbContext db, BuiltInTemplateCopier copier) : ControllerBase
 {
     /// <summary>The doctor_id this request acts on. Doctor callers are always
     /// pinned to their own; Admin callers may target one via ?doctorId=.</summary>
@@ -49,6 +49,9 @@ public class DoctorDiagnosisTemplatesController(ClinicAppDbContext db) : Control
     {
         var did = await ResolveDoctorIdAsync(doctorId, ct);
         if (did is null) return User.IsInRole("Doctor") ? Forbid() : Ok(new List<DoctorDiagnosisTemplate>());
+        //JJQR - AI (Nov 20, 2026) A2
+        await copier.EnsureCopiesAsync(did.Value, BuiltInTemplateKind.Diagnosis, ct);
+        //JJQR - END
         return Ok(await db.DoctorDiagnosisTemplates.AsNoTracking()
             .Where(t => t.DoctorId == did)
             .OrderBy(t => t.Label)

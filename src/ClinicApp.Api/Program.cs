@@ -128,6 +128,7 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<ClinicApp.Api.Security.ActorResolver>();
+builder.Services.AddScoped<BuiltInTemplateCopier>(); //JJQR - AI (Nov 20, 2026) A2
 builder.Services.AddSingleton<IPatientCodeAllocator, PatientCodeAllocator>();
 builder.Services.AddSignalR();
 

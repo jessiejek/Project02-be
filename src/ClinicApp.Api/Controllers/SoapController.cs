@@ -18,12 +18,15 @@ public record SoapTemplateInput(string Title, bool IsSystemTemplate, string? Chi
 [ApiController]
 [Authorize(Roles = "Doctor,Admin")]
 [Route("api")]
-public class SoapController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
+public class SoapController(ClinicAppDbContext db, ActorResolver actors, BuiltInTemplateCopier copier) : ControllerBase
 {
     [HttpGet("soap-phrases")]
     public async Task<ActionResult<List<SoapPhrase>>> GetPhrases([FromQuery] Guid doctorId, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(doctorId)) return Forbid();
+        //JJQR - AI (Nov 20, 2026) A2 — copy catalog phrases into her own rows, then list only hers
+        await copier.EnsureCopiesAsync(doctorId, BuiltInTemplateKind.Phrase, ct);
+        //JJQR - END
         //JJQR - AI (Nov 19, 2026) - doctor-chosen order first (sort_order), then label; JSON gains sort_order
         return Ok(await db.SoapPhrases.AsNoTracking().Where(p => p.DoctorId == doctorId)
             .OrderBy(p => p.SortOrder).ThenBy(p => p.Label).ToListAsync(ct));
@@ -114,6 +117,16 @@ public class SoapController(ClinicAppDbContext db, ActorResolver actors) : Contr
             if (doctorId is not null && !actor.ActsAsDoctor(doctorId.Value)) return Forbid();
             doctorId = actor.StaffId;
         }
+
+        //JJQR - AI (Nov 20, 2026) A2 — doctor (or admin acting for her) gets her own copies, never system rows
+        if (doctorId is not null && actor.ActsAsDoctor(doctorId.Value))
+        {
+            await copier.EnsureCopiesAsync(doctorId.Value, BuiltInTemplateKind.Soap, ct);
+            return Ok(await db.SoapTemplates.AsNoTracking()
+                .Where(t => t.DoctorId == doctorId && !t.IsSystemTemplate)
+                .OrderBy(t => t.Title).ToListAsync(ct));
+        }
+        //JJQR - END
 
         var q = db.SoapTemplates.AsNoTracking().AsQueryable();
         if (doctorId is not null) q = q.Where(t => t.DoctorId == doctorId || t.IsSystemTemplate);

@@ -270,16 +270,22 @@ public class RoleTests(ApiFixture api) : ApiTestBase(api)
         await ShouldBe(HttpStatusCode.Forbidden, await b.DeleteAsync($"/api/prescription-templates/{W.RxTemplateDoctorA}"));
         await ShouldBe(HttpStatusCode.Forbidden, await b.PostAsync("/api/prescription-templates", ApiFactory.Body(new { doctor_id = W.DoctorA.RowId, title = "planted", is_system_template = false, items = Array.Empty<object>() })));
 
-        // Unfiltered list: B sees the system set but never A's private set.
+        //JJQR - AI (Nov 20, 2026) A2 — doctor GET is her own copies only (system originals stay out of the list)
         var listB = await ListOf(await b.GetAsync("/api/prescription-templates"));
         Assert.False(AnyValue(listB, "template_id", W.RxTemplateDoctorA));
-        Assert.True(AnyValue(listB, "template_id", W.RxTemplateSystem));
+        Assert.False(AnyValue(listB, "template_id", W.RxTemplateSystem));
+        Assert.DoesNotContain(listB, t => t.GetProperty("is_system_template").GetBoolean());
+        Assert.Contains(listB, t => t.GetProperty("title").GetString() == "System rx");
         Assert.True(await WithDb(db => db.PrescriptionTemplates.AnyAsync(t => t.TemplateId == W.RxTemplateDoctorA && t.Title == "DoctorA private rx")));
+        Assert.True(await WithDb(db => db.PrescriptionTemplates.AnyAsync(t => t.TemplateId == W.RxTemplateSystem && t.IsSystemTemplate)));
 
         using var a = DocA(); // control
         var listA = await ListOf(await a.GetAsync("/api/prescription-templates"));
         Assert.True(AnyValue(listA, "template_id", W.RxTemplateDoctorA));
-        Assert.True(AnyValue(listA, "template_id", W.RxTemplateSystem));
+        Assert.False(AnyValue(listA, "template_id", W.RxTemplateSystem));
+        Assert.DoesNotContain(listA, t => t.GetProperty("is_system_template").GetBoolean());
+        Assert.Contains(listA, t => t.GetProperty("title").GetString() == "System rx");
+        //JJQR - END
     }
 
     [Fact]

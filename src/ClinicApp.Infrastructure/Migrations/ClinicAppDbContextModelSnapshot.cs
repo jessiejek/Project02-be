@@ -837,6 +837,43 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.ToTable("doctor_blocked_dates", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicApp.Domain.Entities.DoctorBuiltinTemplateCopy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BuiltinKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("builtin_key");
+
+                    b.Property<DateTimeOffset>("CopiedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("copied_at");
+
+                    b.Property<Guid>("DoctorId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("doctor_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("kind");
+
+                    b.HasKey("Id")
+                        .HasName("pk_doctor_builtin_template_copies");
+
+                    b.HasIndex("DoctorId", "Kind", "BuiltinKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_doctor_builtin_template_copies_doctor_id_kind_builtin_key");
+
+                    b.ToTable("doctor_builtin_template_copies", (string)null);
+                });
+
             modelBuilder.Entity("ClinicApp.Domain.Entities.DoctorDayStatus", b =>
                 {
                     b.Property<Guid>("Id")
@@ -907,6 +944,11 @@ namespace ClinicApp.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("label");
+
+                    b.Property<string>("SourceBuiltinKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("source_builtin_key");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
@@ -1468,6 +1510,11 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Recommendations")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("recommendations");
+
+                    b.Property<string>("SourceBuiltinKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("source_builtin_key");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -2401,6 +2448,11 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_system_template");
 
+                    b.Property<string>("SourceBuiltinKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("source_builtin_key");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
@@ -2647,6 +2699,11 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("int")
                         .HasColumnName("sort_order");
 
+                    b.Property<string>("SourceBuiltinKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("source_builtin_key");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
@@ -2691,6 +2748,11 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Plan")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("plan");
+
+                    b.Property<string>("SourceBuiltinKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("source_builtin_key");
 
                     b.Property<string>("Subjective")
                         .HasColumnType("nvarchar(max)")

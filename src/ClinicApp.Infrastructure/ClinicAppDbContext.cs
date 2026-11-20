@@ -51,6 +51,9 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     public DbSet<SoapTemplate> SoapTemplates => Set<SoapTemplate>();
     public DbSet<MedicalCertificateTemplate> MedicalCertificateTemplates => Set<MedicalCertificateTemplate>();
     public DbSet<DoctorDiagnosisTemplate> DoctorDiagnosisTemplates => Set<DoctorDiagnosisTemplate>();
+    //JJQR - AI (Nov 20, 2026) A2
+    public DbSet<DoctorBuiltinTemplateCopy> DoctorBuiltinTemplateCopies => Set<DoctorBuiltinTemplateCopy>();
+    //JJQR - END
 
     // Prescriptions
     public DbSet<Medicine> Medicines => Set<Medicine>();
@@ -305,14 +308,45 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
             //JJQR - END
         });
 
-        modelBuilder.Entity<SoapPhrase>(e => e.HasKey(p => p.Id));
-        modelBuilder.Entity<SoapTemplate>(e => e.HasKey(t => t.Id));
-        modelBuilder.Entity<MedicalCertificateTemplate>(e => e.HasKey(t => t.Id));
+        modelBuilder.Entity<SoapPhrase>(e =>
+        {
+            e.HasKey(p => p.Id);
+            //JJQR - AI (Nov 20, 2026) A2
+            e.Property(p => p.SourceBuiltinKey).HasMaxLength(64);
+            //JJQR - END
+        });
+        modelBuilder.Entity<SoapTemplate>(e =>
+        {
+            e.HasKey(t => t.Id);
+            //JJQR - AI (Nov 20, 2026) A2
+            e.Property(t => t.SourceBuiltinKey).HasMaxLength(64);
+            //JJQR - END
+        });
+        modelBuilder.Entity<MedicalCertificateTemplate>(e =>
+        {
+            e.HasKey(t => t.Id);
+            //JJQR - AI (Nov 20, 2026) A2
+            e.Property(t => t.SourceBuiltinKey).HasMaxLength(64);
+            //JJQR - END
+        });
         modelBuilder.Entity<DoctorDiagnosisTemplate>(e =>
         {
             e.HasKey(t => t.Id);
             e.HasIndex(t => t.DoctorId);
+            //JJQR - AI (Nov 20, 2026) A2
+            e.Property(t => t.SourceBuiltinKey).HasMaxLength(64);
+            //JJQR - END
         });
+        //JJQR - AI (Nov 20, 2026) A2
+        modelBuilder.Entity<DoctorBuiltinTemplateCopy>(e =>
+        {
+            e.ToTable("doctor_builtin_template_copies");
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Kind).HasMaxLength(20);
+            e.Property(c => c.BuiltinKey).HasMaxLength(64);
+            e.HasIndex(c => new { c.DoctorId, c.Kind, c.BuiltinKey }).IsUnique();
+        });
+        //JJQR - END
 
         // ── Prescriptions ───────────────────────────────────────────────
         modelBuilder.Entity<Medicine>(e =>
@@ -340,7 +374,13 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
 
         modelBuilder.Entity<DoctorFavoriteMedicine>(e => e.HasKey(f => f.Id));
 
-        modelBuilder.Entity<PrescriptionTemplate>(e => e.HasKey(t => t.TemplateId));
+        modelBuilder.Entity<PrescriptionTemplate>(e =>
+        {
+            e.HasKey(t => t.TemplateId);
+            //JJQR - AI (Nov 20, 2026) A2
+            e.Property(t => t.SourceBuiltinKey).HasMaxLength(64);
+            //JJQR - END
+        });
 
         modelBuilder.Entity<PrescriptionTemplateItem>(e =>
         {
