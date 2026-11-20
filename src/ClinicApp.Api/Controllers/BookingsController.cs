@@ -542,12 +542,21 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null,
         // JJQR - AI (Nov 20, 2026) - B-42: the front-desk dashboard asks for live rows only (no Cancelled / Expired), so they are neither listed nor counted
         [FromQuery] bool activeOnly = false,
+        // Optional comma-separated BookingStatus list (e.g. "Confirmed,CheckedIn"): the dashboard's arrivals list only needs those, so a busy day cannot push them past the page cap.
+        [FromQuery] string? statuses = null,
         // JJQR - END
         CancellationToken ct = default)
     {
         var today = ClinicApp.Domain.ClinicClock.Today;
         var todays = WithEmbeds().Where(b => b.AppointmentDate == today);
         if (activeOnly) todays = todays.Where(b => b.Status != BookingStatus.Cancelled && b.Status != BookingStatus.Expired);
+        if (!string.IsNullOrWhiteSpace(statuses))
+        {
+            var wanted = statuses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(x => Enum.TryParse<BookingStatus>(x, true, out var st) ? (BookingStatus?)st : null)
+                .Where(x => x is not null).Select(x => x!.Value).ToList();
+            todays = todays.Where(b => wanted.Contains(b.Status));
+        }
         var query = SearchBookings(todays, q).OrderBy(b => b.SlotStartTime);
         return Ok(await PageAsync(query, page, pageSize, ct));
     }

@@ -31,6 +31,11 @@ public class StaffTodayTests(ApiFixture api) : ApiTestBase(api)
         Assert.Contains(live, activeIds);
         Assert.DoesNotContain(dead, activeIds);
         Assert.Equal(activeIds.Count, active.GetProperty("totalCount").GetInt32());
+
+        var onlyConfirmed = await JsonOf(await staff.GetAsync("/api/bookings/staff/today?pageSize=500&activeOnly=true&statuses=Confirmed,CheckedIn"));
+        var confirmedIds = onlyConfirmed.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("booking_id").GetGuid()).ToList();
+        Assert.Contains(live, confirmedIds);
+        Assert.DoesNotContain(dead, confirmedIds);
     }
 }
 // JJQR - END
