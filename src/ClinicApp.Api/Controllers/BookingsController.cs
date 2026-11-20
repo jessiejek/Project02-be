@@ -104,6 +104,17 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         var services = await db.Services.Where(s => request.ServiceIds.Contains(s.ServiceId)).ToListAsync(ct);
         if (services.Count != request.ServiceIds.Count) return BadRequest(new { message = "One or more services not found." });
 
+        // JJQR - AI (Nov 20, 2026) - B-06 / B-29 / B-05: a scheduled booking follows the same date rules as online
+        // booking; a walk-in is someone standing at the desk, so the clinic is by definition open for them.
+        if (!request.IsWalkIn)
+        {
+            var closedReason = await ClosedReasonAsync(request.AppointmentDate, doctor.DoctorId, ct);
+            if (closedReason is not null) return BadRequest(new { message = closedReason });
+            if (await HasActiveBookingOnAsync(request.PatientId, request.AppointmentDate, null, ct))
+                return Conflict(new { message = "This patient already has a booking for that date." });
+        }
+        // JJQR - END
+
         var now = DateTimeOffset.UtcNow;
         var totalFee = doctor.ConsultationFee + services.Sum(s => s.Price);
 
@@ -252,6 +263,13 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         if (request.AppointmentDate < ClinicApp.Domain.ClinicClock.Today)
             return BadRequest(new { message = "Cannot reschedule to a past date." });
 
+        // JJQR - AI (Nov 20, 2026) - B-06 / B-29 / B-05: same date rules as a new booking
+        var closedOn = await ClosedReasonAsync(request.AppointmentDate, booking.DoctorId, ct);
+        if (closedOn is not null) return BadRequest(new { message = closedOn });
+        if (await HasActiveBookingOnAsync(booking.PatientId, request.AppointmentDate, booking.BookingId, ct))
+            return Conflict(new { message = "This patient already has a booking for that date." });
+        // JJQR - END
+
         var userId = CurrentUserId();
         var now = DateTimeOffset.UtcNow;
         booking.Status = BookingStatus.Rescheduled;
@@ -326,6 +344,40 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
     }
     //JJQR - END
 
+    // JJQR - AI (Nov 20, 2026) - B-06 / B-29 / B-05: shared "can this date be booked?" rules
+    private static readonly BookingStatus[] ActiveStatuses =
+        [BookingStatus.Pending, BookingStatus.ProofSubmitted, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InProgress, BookingStatus.OnHold];
+
+    /// <summary>Why a scheduled (non-walk-in) booking cannot be made for this day, or null when it can:
+    /// the clinic's operating hours mark that weekday closed (B-29), the doctor blocked the date, or the
+    /// doctor's weekly schedule has that weekday off (B-06). A doctor with no schedule rows at all is
+    /// treated as "no schedule configured" and is not restricted by weekday.</summary>
+    private async Task<string?> ClosedReasonAsync(DateOnly date, Guid doctorId, CancellationToken ct)
+    {
+        var dow = (short)date.DayOfWeek; // 0 = Sunday, same numbering as clinic_operating_hours / doctor_schedules
+        var hours = await db.ClinicOperatingHours.AsNoTracking().SingleOrDefaultAsync(h => h.DayOfWeek == dow, ct);
+        if (hours is { IsClosed: true })
+            return $"The clinic is closed on {date.DayOfWeek}s. Please choose another day.";
+
+        if (await db.DoctorBlockedDates.AsNoTracking().AnyAsync(b => b.DoctorId == doctorId && b.BlockedDate == date, ct))
+            return "The doctor is not available on that date. Please choose another day.";
+
+        var schedule = await db.DoctorSchedules.AsNoTracking().Where(x => x.DoctorId == doctorId).ToListAsync(ct);
+        if (schedule.Count > 0)
+        {
+            var day = schedule.FirstOrDefault(x => x.DayOfWeek == dow);
+            var anyActive = schedule.Any(x => x.IsActive);
+            if ((day is not null && !day.IsActive) || (day is null && anyActive))
+                return $"The doctor does not see patients on {date.DayOfWeek}s. Please choose another day.";
+        }
+        return null;
+    }
+
+    private Task<bool> HasActiveBookingOnAsync(Guid patientId, DateOnly date, Guid? exceptBookingId, CancellationToken ct) =>
+        db.Bookings.AsNoTracking().AnyAsync(b => b.PatientId == patientId && b.AppointmentDate == date
+            && b.BookingId != exceptBookingId && ActiveStatuses.Contains(b.Status), ct);
+    // JJQR - END
+
     /// <summary>Online self-booking (§16.3 hybrid queue): a patient joins the same per-day
     /// FCFS queue walk-ins use, without visiting the clinic first. No slot picker, no
     /// capacity cap — booking just reserves a `queue_number` in creation order, same as a
@@ -351,6 +403,13 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         {
             return BadRequest(new { message = "Cannot book a past date." });
         }
+
+        // JJQR - AI (Nov 20, 2026) - B-06 / B-29 / B-05
+        var closedReason = await ClosedReasonAsync(date, doctor.DoctorId, ct);
+        if (closedReason is not null) return BadRequest(new { message = closedReason });
+        if (await HasActiveBookingOnAsync(patientId.Value, date, null, ct))
+            return Conflict(new { message = "You already have a booking for that date." });
+        // JJQR - END
 
         var visitType = request.VisitType ?? VisitType.New;
         var fee = ClinicApp.Domain.ClinicFees.Compute(settings, visitType, false, null);

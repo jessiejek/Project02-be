@@ -168,7 +168,9 @@ public class ManilaTodayApiTests(ApiFixture api) : ApiTestBase(api)
     {
         using var _ = FrozenClock.At(BugWindow);
         await EnsureSettings();
-        using var a = F.Patient(W.PatientA);
+        //JJQR - AI (Nov 20, 2026) - B-05: a fresh patient, so another test's booking on the frozen date can't trip the one-booking-per-day rule
+        using var a = F.ClientFor((await TestHelpers.NewPatientAsync(F)).UserId, "Patient");
+        //JJQR - END
 
         var ok = await a.PostAsync("/api/bookings/book", ApiFactory.Body(new { }));
         await ShouldBe(HttpStatusCode.Created, ok);
@@ -176,7 +178,10 @@ public class ManilaTodayApiTests(ApiFixture api) : ApiTestBase(api)
 
         // The 21st is "today" in UTC but already the past in Manila.
         await ShouldBe(HttpStatusCode.BadRequest, await a.PostAsync("/api/bookings/book", ApiFactory.Body(new { appointment_date = "2026-09-21" })));
-        await ShouldBe(HttpStatusCode.Created, await a.PostAsync("/api/bookings/book", ApiFactory.Body(new { appointment_date = "2026-09-22" })));
+        //JJQR - AI (Nov 20, 2026) - B-05: the same patient can no longer book the same date twice (409); the 23rd is a valid next-day booking
+        await ShouldBe(HttpStatusCode.Conflict, await a.PostAsync("/api/bookings/book", ApiFactory.Body(new { appointment_date = "2026-09-22" })));
+        await ShouldBe(HttpStatusCode.Created, await a.PostAsync("/api/bookings/book", ApiFactory.Body(new { appointment_date = "2026-09-23" })));
+        //JJQR - END
     }
 
     [Fact]
