@@ -59,6 +59,19 @@ public static class Rules
         .Optional("specimen_type", "Specimen type", o.SpecimenType, 100)
         .Optional("notes", "Notes", o.Notes, 2000);
 
+    // JJQR - AI (Nov 20, 2026) - B-31: a doctor profile cannot carry a negative fee or a nonsense slot length
+    public static Check Doctor(Doctor d) => new Check()
+        .Required("specialization", "Specialty", d.Specialization, 100)
+        .Money("consultation_fee", "Consultation fee", d.ConsultationFee)
+        .Range("slot_duration_minutes", "Slot duration", d.SlotDurationMinutes, 5, 240)
+        .Range("slot_capacity", "Slot capacity", d.SlotCapacity, 1, 50)
+        .Range("daily_patient_limit", "Daily patient limit", d.DailyPatientLimit ?? 1, 1, 500)
+        .Optional("bio", "Bio", d.Bio, 2000)
+        .Optional("license_number", "License number", d.LicenseNumber, 50)
+        .Optional("ptr_number", "PTR number", d.PtrNumber, 50)
+        .Optional("s2_number", "S2 number", d.S2Number, 50);
+    // JJQR - END
+
     public static Check Staff(StaffAccount s) => new Check()
         .Required("full_name", "Full name", s.FullName, 200)
         .Phone("contact_number", "Contact number", s.ContactNumber);

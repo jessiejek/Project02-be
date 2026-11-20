@@ -118,5 +118,24 @@ public class InputValidationTests(ApiFixture api) : ApiTestBase(api)
         await ShouldBe(HttpStatusCode.OK, await doc.PutAsync(lab, ApiFactory.Body(new[] { new { test_name = "CBC" } })));
         await ShouldBe(HttpStatusCode.OK, await doc.PutAsync(lab, ApiFactory.Body(new object[0])));
     }
+
+    [Theory]
+    [InlineData("consultation_fee", -50)]
+    [InlineData("slot_duration_minutes", 0)]
+    [InlineData("slot_capacity", 0)]
+    public async Task A_doctor_profile_cannot_get_a_negative_fee_or_a_zero_slot(string field, int value)
+    {
+        using var admin = F.As(W.Admin, "Admin");
+        var d = await JsonOf(await admin.GetAsync($"/api/doctors/{W.DoctorB.RowId}"));
+        var body = new Dictionary<string, object?>
+        {
+            ["doctor_id"] = W.DoctorB.RowId, ["specialization"] = d.GetProperty("specialization").GetString(), ["consultation_fee"] = 300,
+            ["slot_duration_minutes"] = 30, ["slot_capacity"] = 1,
+        };
+        body[field] = value;
+        await ShouldBe(HttpStatusCode.BadRequest, await admin.PutAsync($"/api/doctors/{W.DoctorB.RowId}", ApiFactory.Body(body)));
+        body[field] = field == "consultation_fee" ? 0 : field == "slot_duration_minutes" ? 20 : 2;
+        await ShouldBe(HttpStatusCode.OK, await admin.PutAsync($"/api/doctors/{W.DoctorB.RowId}", ApiFactory.Body(body)));
+    }
 }
 // JJQR - END

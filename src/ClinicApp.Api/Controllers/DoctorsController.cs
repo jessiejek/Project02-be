@@ -1,3 +1,4 @@
+using ClinicApp.Api.Validation;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
@@ -118,6 +119,7 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
     {
         var doctor = await db.Doctors.SingleOrDefaultAsync(d => d.DoctorId == id, ct);
         if (doctor is null) return NotFound();
+        if (Rules.Doctor(payload).Result() is { } invalid) return invalid; // JJQR - AI (Nov 20, 2026) - B-31
 
         doctor.Specialization = payload.Specialization;
         doctor.ConsultationFee = payload.ConsultationFee;
