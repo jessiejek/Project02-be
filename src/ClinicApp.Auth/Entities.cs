@@ -11,6 +11,10 @@ public class User
     /// (maps to AuthUserDto.isFirstLogin, which firstLoginGuard checks on the frontend).</summary>
     public bool MustSetPassword { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    // JJQR - AI (Nov 20, 2026) - PV-3: lock the account for a while after repeated wrong passwords
+    public int FailedLoginCount { get; set; }
+    public DateTimeOffset? LockedUntil { get; set; }
+    // JJQR - END
 }
 
 public class RefreshToken

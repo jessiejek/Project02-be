@@ -42,6 +42,9 @@ public class Patient : IHasUpdatedAt
     public bool IsEmailVerified { get; set; }
     public DateTimeOffset? ConsentedAt { get; set; }
     public int ConsentVersion { get; set; }
+    // JJQR - AI (Nov 20, 2026) - PV-12: set when the patient withdraws consent (cleared when they agree again)
+    public DateTimeOffset? ConsentWithdrawnAt { get; set; }
+    // JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 

@@ -83,6 +83,14 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("email_confirmed");
 
+                    b.Property<int>("FailedLoginCount")
+                        .HasColumnType("int")
+                        .HasColumnName("failed_login_count");
+
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("locked_until");
+
                     b.Property<bool>("MustSetPassword")
                         .HasColumnType("bit")
                         .HasColumnName("must_set_password");
@@ -677,6 +685,65 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.ToTable("consultation_diagnoses", (string)null);
 
                     b.HasAnnotation("Relational:JsonPropertyName", "consultation_diagnoses");
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.DataRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("details");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("patient_id");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("requested_at");
+
+                    b.Property<string>("ResolutionNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("resolution_note");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<Guid?>("ResolvedByUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("resolved_by_user_id");
+
+                    b.Property<DateOnly?>("RetainUntil")
+                        .HasColumnType("date")
+                        .HasColumnName("retain_until");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_data_requests");
+
+                    b.HasIndex("PatientId", "RequestedAt")
+                        .HasDatabaseName("ix_data_requests_patient_id_requested_at");
+
+                    b.ToTable("data_requests", (string)null);
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.Doctor", b =>
@@ -1570,6 +1637,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("int")
                         .HasColumnName("consent_version");
 
+                    b.Property<DateTimeOffset?>("ConsentWithdrawnAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("consent_withdrawn_at");
+
                     b.Property<DateTimeOffset?>("ConsentedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("consented_at");
@@ -1769,6 +1840,40 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.ToTable("patient_allergies", (string)null);
 
                     b.HasAnnotation("Relational:JsonPropertyName", "patient_allergies");
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.PatientConsent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<int>("ConsentVersion")
+                        .HasColumnType("int")
+                        .HasColumnName("consent_version");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("decided_at");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("decision");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("patient_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_patient_consents");
+
+                    b.HasIndex("PatientId", "DecidedAt")
+                        .HasDatabaseName("ix_patient_consents_patient_id_decided_at");
+
+                    b.ToTable("patient_consents", (string)null);
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.PatientDocument", b =>
