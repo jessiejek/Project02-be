@@ -119,5 +119,20 @@ public class PrivacyRightsTests(ApiFixture api) : ApiTestBase(api)
         using var staff = F.As(W.Staff, "Staff");
         await ShouldBeDenied(await staff.PostAsync("/api/privacy/data-requests", ApiFactory.Body(new { kind = "Correction", details = "x" })));
     }
+
+    // JJQR - AI (Nov 20, 2026) - PV-2: patients don't get a doctor's personal email / phone from the staff-accounts endpoint
+    [Fact]
+    public async Task A_patient_sees_a_doctors_name_but_not_the_doctors_email_or_phone()
+    {
+        using var a = F.Patient(W.PatientA);
+        var asPatient = Json(await (await a.GetAsync($"/api/staff-accounts/{W.DoctorA.RowId}")).Content.ReadAsStringAsync());
+        Assert.False(string.IsNullOrWhiteSpace(asPatient.GetProperty("full_name").GetString()));
+        Assert.Equal("", asPatient.GetProperty("email").GetString());
+        Assert.NotEqual(JsonValueKind.String, asPatient.GetProperty("contact_number").ValueKind);
+        using var staff = F.As(W.Staff, "Staff");
+        var asStaff = Json(await (await staff.GetAsync($"/api/staff-accounts/{W.DoctorA.RowId}")).Content.ReadAsStringAsync());
+        Assert.NotEqual("", asStaff.GetProperty("email").GetString());
+    }
+    // JJQR - END
 }
 // JJQR - END

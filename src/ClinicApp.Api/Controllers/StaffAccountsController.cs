@@ -75,7 +75,12 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         // (patients) only an active Doctor's row (the doctor browse pages) or their own.
         var isStaffLike = User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Doctor");
         var isPublicDoctor = row.Role == StaffRole.Doctor && row.Status != StaffStatus.Inactive;
-        return isStaffLike || isPublicDoctor || CurrentUserId() == row.UserId ? Ok(row) : NotFound();
+        // JJQR - AI (Nov 20, 2026) - PV-2: a patient looking at a doctor's card gets the name and photo, not the doctor's personal email / phone (same rule as the public doctor catalog)
+        var self = CurrentUserId() == row.UserId;
+        if (!(isStaffLike || isPublicDoctor || self)) return NotFound();
+        if (!isStaffLike && !self) { row.Email = ""; row.ContactNumber = null; }
+        return Ok(row);
+        // JJQR - END
     }
 
     /// <summary>The logged-in staff/doctor/admin's own row (session, profile page).</summary>
