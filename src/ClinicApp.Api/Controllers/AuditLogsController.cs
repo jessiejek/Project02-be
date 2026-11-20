@@ -62,6 +62,10 @@ public class AuditLogsController(ClinicAppDbContext db, ActorResolver actors) : 
         if (!string.IsNullOrWhiteSpace(q))
         {
             var s = q.Trim();
+            // JJQR - AI (Nov 20, 2026) - PV-9: names are no longer written into the log, so the admin can also search by the record's id
+            if (Guid.TryParse(s, out var rid)) query = query.Where(a => a.EntityId == rid || a.Action.Contains(s) || (a.Details != null && a.Details.Contains(s)));
+            else
+            // JJQR - END
             query = query.Where(a => a.Action.Contains(s) || (a.Details != null && a.Details.Contains(s)));
         }
 

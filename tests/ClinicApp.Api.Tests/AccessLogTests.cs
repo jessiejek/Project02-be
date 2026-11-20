@@ -74,5 +74,21 @@ public class AccessLogTests(ApiFixture api) : ApiTestBase(api)
         Assert.Contains(rows, r => r.Contains("Contact number") && r.Contains("City"));
     }
     // JJQR - END
+
+    // JJQR - AI (Nov 20, 2026) - PV-9: with names out of the log, the admin finds a patient's entries by the record id
+    [Fact]
+    public async Task Audit_search_finds_a_records_entries_by_its_id()
+    {
+        using var staff = F.As(W.Staff, "Staff");
+        var created = await staff.PostAsync("/api/patients", ApiFactory.Body(new { first_name = "Searchy", last_name = "Idlookup", date_of_birth = "1991-02-03", sex = "Female" }));
+        var id = System.Text.Json.JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("patient_id").GetGuid();
+        using var admin = F.As(W.Admin, "Admin");
+        var res = await admin.GetAsync($"/api/audit-logs/search?q={id}");
+        await ShouldBe(HttpStatusCode.OK, res);
+        var body = await res.Content.ReadAsStringAsync();
+        Assert.Contains(id.ToString(), body);
+        Assert.DoesNotContain("Idlookup", body);
+    }
+    // JJQR - END
 }
 // JJQR - END

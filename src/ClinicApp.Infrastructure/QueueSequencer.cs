@@ -13,9 +13,13 @@ public static class QueueSequencer
 {
     public static async Task<string> NextAsync(ClinicAppDbContext db, DateOnly day, CancellationToken ct)
     {
-        for (var attempt = 0; attempt < 10; attempt++)
+        // JJQR - AI (Nov 20, 2026) - F-1: read the counter WITHOUT tracking. A tracked entity keeps its first-read Value, so every retry after a
+        // collision re-used the stale number and failed again ("Could not allocate a queue number" 500 under simultaneous check-ins). Retries now also wait a few ms.
+        for (var attempt = 0; attempt < 25; attempt++)
         {
-            var counter = await db.QueueCounters.SingleOrDefaultAsync(c => c.Date == day, ct);
+            if (attempt > 0) await Task.Delay(Random.Shared.Next(5, 40), ct);
+            var counter = await db.QueueCounters.AsNoTracking().SingleOrDefaultAsync(c => c.Date == day, ct);
+            // JJQR - END
             if (counter is null)
             {
                 db.QueueCounters.Add(new QueueCounter { Date = day, Value = 1 });
