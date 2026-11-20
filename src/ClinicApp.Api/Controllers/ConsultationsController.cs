@@ -187,11 +187,11 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         }
 
         var details = isNew
-            ? AuditLogWriter.DiffDetails(
+            ? AuditLogWriter.ChangedFields( // JJQR - AI (Nov 20, 2026) - PV-9: which fields, not their clinical text // JJQR - END
                 ("Chief complaint", null, c.ChiefComplaint), ("Subjective", null, c.Subjective),
                 ("Objective", null, c.Objective), ("Assessment", null, c.Assessment), ("Plan", null, c.Plan),
                 ("Doctor notes", null, c.DoctorNotes), ("PF decision", null, c.PfDecision))
-            : AuditLogWriter.DiffDetails(
+            : AuditLogWriter.ChangedFields(
                 ("Chief complaint", before!.ChiefComplaint, c.ChiefComplaint), ("Subjective", before.Subjective, c.Subjective),
                 ("Objective", before.Objective, c.Objective), ("Assessment", before.Assessment, c.Assessment),
                 ("Plan", before.Plan, c.Plan), ("Doctor notes", before.DoctorNotes, c.DoctorNotes),

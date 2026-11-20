@@ -58,5 +58,21 @@ public class AccessLogTests(ApiFixture api) : ApiTestBase(api)
         var asked = await admin.GetAsync($"/api/audit-logs/search?entityType=Access&pageSize=200");
         Assert.Contains("\"entity_type\":\"Access\"", await asked.Content.ReadAsStringAsync());
     }
+
+    // JJQR - AI (Nov 20, 2026) - PV-9: the change log names fields, never the patient's details
+    [Fact]
+    public async Task Patient_change_log_lists_changed_field_names_and_not_the_values()
+    {
+        using var staff = F.As(W.Staff, "Staff");
+        var created = await staff.PostAsync("/api/patients", ApiFactory.Body(new { first_name = "Ophelia", last_name = "Quillfeather", date_of_birth = "1991-02-03", sex = "Female", contact_number = "09171234567" }));
+        await ShouldBe(HttpStatusCode.Created, created);
+        var id = System.Text.Json.JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("patient_id").GetGuid();
+        await ShouldBe(HttpStatusCode.OK, await staff.PutAsync($"/api/patients/{id}", ApiFactory.Body(new { first_name = "Ophelia", last_name = "Quillfeather", date_of_birth = "1991-02-03", sex = "Female", contact_number = "09179998888", city = "Cebu" })));
+        var rows = await WithDb(db => db.AuditLogs.Where(a => a.EntityId == id && a.EntityType == AuditEntityType.Patient).Select(a => a.Details ?? "").ToListAsync());
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r => { Assert.DoesNotContain("Ophelia", r); Assert.DoesNotContain("Quillfeather", r); Assert.DoesNotContain("0917", r); Assert.DoesNotContain("Cebu", r); });
+        Assert.Contains(rows, r => r.Contains("Contact number") && r.Contains("City"));
+    }
+    // JJQR - END
 }
 // JJQR - END

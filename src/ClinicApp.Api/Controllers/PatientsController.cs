@@ -112,7 +112,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
             payload.PatientCode = code;
             db.Patients.Add(payload);
             AuditLogWriter.Add(db, AuditEntityType.Patient, payload.PatientId, "Created", userId,
-                $"Name: {payload.FirstName} {payload.LastName}; Code: {code}");
+                $"Code: {code}"); // JJQR - AI (Nov 20, 2026) - PV-9: no patient name in the log // JJQR - END
         }, ct);
         return CreatedAtAction(nameof(GetById), new { id = payload.PatientId }, payload);
     }
@@ -258,7 +258,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         patient.HmoCardNumber = payload.HmoCardNumber;
         patient.UpdatedAt = DateTimeOffset.UtcNow;
 
-        var details = AuditLogWriter.DiffDetails(
+        var details = AuditLogWriter.ChangedFields( // JJQR - AI (Nov 20, 2026) - PV-9: field names only // JJQR - END
             ("First name", before.FirstName, patient.FirstName), ("Middle name", before.MiddleName, patient.MiddleName),
             ("Last name", before.LastName, patient.LastName), ("Date of birth", before.DateOfBirth, patient.DateOfBirth),
             ("Sex", before.Sex, patient.Sex), ("Civil status", before.CivilStatus, patient.CivilStatus),
