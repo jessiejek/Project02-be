@@ -1,3 +1,4 @@
+using ClinicApp.Api.Validation;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -74,7 +75,12 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         // (patients) only an active Doctor's row (the doctor browse pages) or their own.
         var isStaffLike = User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Doctor");
         var isPublicDoctor = row.Role == StaffRole.Doctor && row.Status != StaffStatus.Inactive;
-        return isStaffLike || isPublicDoctor || CurrentUserId() == row.UserId ? Ok(row) : NotFound();
+        // JJQR - AI (Nov 20, 2026) - PV-2: a patient looking at a doctor's card gets the name and photo, not the doctor's personal email / phone (same rule as the public doctor catalog)
+        var self = CurrentUserId() == row.UserId;
+        if (!(isStaffLike || isPublicDoctor || self)) return NotFound();
+        if (!isStaffLike && !self) { row.Email = ""; row.ContactNumber = null; }
+        return Ok(row);
+        // JJQR - END
     }
 
     /// <summary>The logged-in staff/doctor/admin's own row (session, profile page).</summary>
@@ -99,12 +105,22 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         var self = CurrentUserId() == row.UserId;
         var isAdmin = User.IsInRole("Admin");
         if (!self && !isAdmin) return Forbid();
+        if (Rules.Staff(payload).Result() is { } invalid) return invalid; // JJQR - AI (Nov 20, 2026) - B-01
 
         row.FullName = payload.FullName;
         row.ContactNumber = payload.ContactNumber;
         // Only an Admin changing someone else's row may change status; a self-edit keeps it.
         if (!self && isAdmin)
+        {
             row.Status = payload.Status;
+            // JJQR - AI (Nov 20, 2026) - B-32: deactivating also ends every existing session
+            if (payload.Status == StaffStatus.Inactive)
+            {
+                var live = await db.RefreshTokens.Where(t => t.UserId == row.UserId && t.RevokedAt == null).ToListAsync(ct);
+                foreach (var t in live) t.RevokedAt = DateTimeOffset.UtcNow;
+            }
+            // JJQR - END
+        }
 
         await db.SaveChangesAsync(ct);
         return Ok(row);

@@ -71,7 +71,9 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         if (patientId is not null) q = q.Where(c => c.PatientId == patientId);
         if (doctorId is not null) q = q.Where(c => c.DoctorId == doctorId);
         if (bookingId is not null) q = q.Where(c => c.BookingId == bookingId);
-        return Ok(await q.OrderByDescending(c => c.CreatedAt).ToListAsync(ct));
+        var list = await q.OrderByDescending(c => c.CreatedAt).ToListAsync(ct);
+        foreach (var pid in list.Select(c => c.PatientId).Distinct().Take(20)) await AccessLog.RecordAsync(db, actor, pid, "Consultations", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(list);
     }
 
     [HttpGet("{id:guid}")]
@@ -79,7 +81,10 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
     {
         var c = await WithEmbeds().SingleOrDefaultAsync(x => x.ConsultationId == id, ct);
         if (c is null) return NotFound();
-        return (await actors.ResolveAsync(User, ct)).CanAccessPatient(c.PatientId) ? Ok(c) : NotFound();
+        var actorById = await actors.ResolveAsync(User, ct);
+        if (!actorById.CanAccessPatient(c.PatientId)) return NotFound();
+        await AccessLog.RecordAsync(db, actorById, c.PatientId, "Consultations", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(c);
     }
 
     [HttpGet("by-booking/{bookingId:guid}")]
@@ -87,7 +92,10 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
     {
         var c = await WithEmbeds().SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
         if (c is null) return NotFound();
-        return (await actors.ResolveAsync(User, ct)).CanAccessPatient(c.PatientId) ? Ok(c) : NotFound();
+        var actorByBooking = await actors.ResolveAsync(User, ct);
+        if (!actorByBooking.CanAccessPatient(c.PatientId)) return NotFound();
+        await AccessLog.RecordAsync(db, actorByBooking, c.PatientId, "Consultations", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(c);
     }
 
     /// <summary>Upsert on booking_id (contract §10 — the consultation page saves this way).</summary>
@@ -179,11 +187,11 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         }
 
         var details = isNew
-            ? AuditLogWriter.DiffDetails(
+            ? AuditLogWriter.ChangedFields( // JJQR - AI (Nov 20, 2026) - PV-9: which fields, not their clinical text // JJQR - END
                 ("Chief complaint", null, c.ChiefComplaint), ("Subjective", null, c.Subjective),
                 ("Objective", null, c.Objective), ("Assessment", null, c.Assessment), ("Plan", null, c.Plan),
                 ("Doctor notes", null, c.DoctorNotes), ("PF decision", null, c.PfDecision))
-            : AuditLogWriter.DiffDetails(
+            : AuditLogWriter.ChangedFields(
                 ("Chief complaint", before!.ChiefComplaint, c.ChiefComplaint), ("Subjective", before.Subjective, c.Subjective),
                 ("Objective", before.Objective, c.Objective), ("Assessment", before.Assessment, c.Assessment),
                 ("Plan", before.Plan, c.Plan), ("Doctor notes", before.DoctorNotes, c.DoctorNotes),

@@ -29,6 +29,8 @@ public record RescheduleBookingRequest(DateOnly AppointmentDate, string? Reason)
 
 public record RescheduleBookingResponse(Guid OldBookingId, Guid NewBookingId, BookingStatus OldStatus, BookingStatus NewBookingStatus);
 
+public record ClosedDateDto(DateOnly Date, string Reason);
+
 public record CreatePatientBookingRequest(DateOnly? AppointmentDate, VisitType? VisitType, string? Notes);
 
 [ApiController]
@@ -103,6 +105,17 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
 
         var services = await db.Services.Where(s => request.ServiceIds.Contains(s.ServiceId)).ToListAsync(ct);
         if (services.Count != request.ServiceIds.Count) return BadRequest(new { message = "One or more services not found." });
+
+        // JJQR - AI (Nov 20, 2026) - B-06 / B-29 / B-05: a scheduled booking follows the same date rules as online
+        // booking; a walk-in is someone standing at the desk, so the clinic is by definition open for them.
+        if (!request.IsWalkIn)
+        {
+            var closedReason = await ClosedReasonAsync(request.AppointmentDate, doctor.DoctorId, ct);
+            if (closedReason is not null) return BadRequest(new { message = closedReason });
+            if (await HasActiveBookingOnAsync(request.PatientId, request.AppointmentDate, null, ct))
+                return Conflict(new { message = "This patient already has a booking for that date." });
+        }
+        // JJQR - END
 
         var now = DateTimeOffset.UtcNow;
         var totalFee = doctor.ConsultationFee + services.Sum(s => s.Price);
@@ -252,6 +265,13 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         if (request.AppointmentDate < ClinicApp.Domain.ClinicClock.Today)
             return BadRequest(new { message = "Cannot reschedule to a past date." });
 
+        // JJQR - AI (Nov 20, 2026) - B-06 / B-29 / B-05: same date rules as a new booking
+        var closedOn = await ClosedReasonAsync(request.AppointmentDate, booking.DoctorId, ct);
+        if (closedOn is not null) return BadRequest(new { message = closedOn });
+        if (await HasActiveBookingOnAsync(booking.PatientId, request.AppointmentDate, booking.BookingId, ct))
+            return Conflict(new { message = "This patient already has a booking for that date." });
+        // JJQR - END
+
         var userId = CurrentUserId();
         var now = DateTimeOffset.UtcNow;
         booking.Status = BookingStatus.Rescheduled;
@@ -326,6 +346,63 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
     }
     //JJQR - END
 
+    // JJQR - AI (Nov 20, 2026) - B-06 / B-29 / B-05: shared "can this date be booked?" rules
+    private static readonly BookingStatus[] ActiveStatuses =
+        [BookingStatus.Pending, BookingStatus.ProofSubmitted, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InProgress, BookingStatus.OnHold];
+
+    /// <summary>Why a scheduled (non-walk-in) booking cannot be made for this day, or null when it can:
+    /// the clinic's operating hours mark that weekday closed (B-29), the doctor blocked the date, or the
+    /// doctor's weekly schedule has that weekday off (B-06). A doctor with no working day at all is
+    /// treated as "no schedule configured" and is not restricted by weekday.</summary>
+    private async Task<string?> ClosedReasonAsync(DateOnly date, Guid doctorId, CancellationToken ct)
+    {
+        var dow = (short)date.DayOfWeek; // 0 = Sunday, same numbering as clinic_operating_hours / doctor_schedules
+        var hours = await db.ClinicOperatingHours.AsNoTracking().SingleOrDefaultAsync(h => h.DayOfWeek == dow, ct);
+        if (hours is { IsClosed: true })
+            return $"The clinic is closed on {date.DayOfWeek}s. Please choose another day.";
+
+        if (await db.DoctorBlockedDates.AsNoTracking().AnyAsync(b => b.DoctorId == doctorId && b.BlockedDate == date, ct))
+            return "The doctor is not available on that date. Please choose another day.";
+
+        // The weekly schedule only restricts booking once someone has actually set one up (at least one working
+        // day). A doctor whose 7 rows are all switched off — the default state — means "no schedule configured".
+        var schedule = await db.DoctorSchedules.AsNoTracking().Where(x => x.DoctorId == doctorId).ToListAsync(ct);
+        if (schedule.Any(x => x.IsActive))
+        {
+            var day = schedule.FirstOrDefault(x => x.DayOfWeek == dow);
+            if (day is null || !day.IsActive)
+                return $"The doctor does not see patients on {date.DayOfWeek}s. Please choose another day.";
+        }
+        return null;
+    }
+
+    private Task<bool> HasActiveBookingOnAsync(Guid patientId, DateOnly date, Guid? exceptBookingId, CancellationToken ct) =>
+        db.Bookings.AsNoTracking().AnyAsync(b => b.PatientId == patientId && b.AppointmentDate == date
+            && b.BookingId != exceptBookingId && ActiveStatuses.Contains(b.Status), ct);
+    // JJQR - END
+
+    // JJQR - AI (Nov 20, 2026) - B-06 / B-29 (UI): which upcoming days can't be booked online, so the date picker can say so up front
+    /// <summary>Dates in the next <paramref name="days"/> days (default 90, max 366) that online booking refuses,
+    /// with the reason shown to the patient. Same rules as <c>POST /api/bookings/book</c>.</summary>
+    [Authorize(Roles = "Patient,Staff,Admin")]
+    [HttpGet("closed-dates")]
+    public async Task<ActionResult<List<ClosedDateDto>>> ClosedDates([FromQuery] int days = 90, CancellationToken ct = default)
+    {
+        days = Math.Clamp(days, 1, 366);
+        var doctor = await db.Doctors.AsNoTracking().OrderBy(d => d.DoctorId).FirstOrDefaultAsync(ct);
+        if (doctor is null) return Ok(new List<ClosedDateDto>());
+        var result = new List<ClosedDateDto>();
+        var start = ClinicApp.Domain.ClinicClock.Today;
+        for (var i = 0; i < days; i++)
+        {
+            var date = start.AddDays(i);
+            var reason = await ClosedReasonAsync(date, doctor.DoctorId, ct);
+            if (reason is not null) result.Add(new ClosedDateDto(date, reason));
+        }
+        return Ok(result);
+    }
+    // JJQR - END
+
     /// <summary>Online self-booking (§16.3 hybrid queue): a patient joins the same per-day
     /// FCFS queue walk-ins use, without visiting the clinic first. No slot picker, no
     /// capacity cap — booking just reserves a `queue_number` in creation order, same as a
@@ -351,6 +428,13 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         {
             return BadRequest(new { message = "Cannot book a past date." });
         }
+
+        // JJQR - AI (Nov 20, 2026) - B-06 / B-29 / B-05
+        var closedReason = await ClosedReasonAsync(date, doctor.DoctorId, ct);
+        if (closedReason is not null) return BadRequest(new { message = closedReason });
+        if (await HasActiveBookingOnAsync(patientId.Value, date, null, ct))
+            return Conflict(new { message = "You already have a booking for that date." });
+        // JJQR - END
 
         var visitType = request.VisitType ?? VisitType.New;
         var fee = ClinicApp.Domain.ClinicFees.Compute(settings, visitType, false, null);
@@ -455,10 +539,25 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
     [Authorize(Roles = "Admin,Staff")]
     [HttpGet("staff/today")]
     public async Task<ActionResult<PagedResult<Booking>>> GetStaffToday(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null,
+        // JJQR - AI (Nov 20, 2026) - B-42: the front-desk dashboard asks for live rows only (no Cancelled / Expired), so they are neither listed nor counted
+        [FromQuery] bool activeOnly = false,
+        // Optional comma-separated BookingStatus list (e.g. "Confirmed,CheckedIn"): the dashboard's arrivals list only needs those, so a busy day cannot push them past the page cap.
+        [FromQuery] string? statuses = null,
+        // JJQR - END
+        CancellationToken ct = default)
     {
         var today = ClinicApp.Domain.ClinicClock.Today;
-        var query = SearchBookings(WithEmbeds().Where(b => b.AppointmentDate == today), q).OrderBy(b => b.SlotStartTime);
+        var todays = WithEmbeds().Where(b => b.AppointmentDate == today);
+        if (activeOnly) todays = todays.Where(b => b.Status != BookingStatus.Cancelled && b.Status != BookingStatus.Expired);
+        if (!string.IsNullOrWhiteSpace(statuses))
+        {
+            var wanted = statuses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(x => Enum.TryParse<BookingStatus>(x, true, out var st) ? (BookingStatus?)st : null)
+                .Where(x => x is not null).Select(x => x!.Value).ToList();
+            todays = todays.Where(b => wanted.Contains(b.Status));
+        }
+        var query = SearchBookings(todays, q).OrderBy(b => b.SlotStartTime);
         return Ok(await PageAsync(query, page, pageSize, ct));
     }
 

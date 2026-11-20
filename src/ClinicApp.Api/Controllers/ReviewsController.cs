@@ -1,5 +1,6 @@
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
+using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -50,6 +51,13 @@ public class ReviewsController(ClinicAppDbContext db, ActorResolver actors) : Co
         var booking = await db.Bookings.AsNoTracking()
             .SingleOrDefaultAsync(b => b.BookingId == req.BookingId && b.PatientId == actor.PatientId, ct);
         if (actor.PatientId is null || booking is null) return NotFound(); // not their booking (or no such booking)
+
+        // JJQR - AI (Nov 20, 2026) - B-04: you can only review a visit that actually happened
+        if (booking.Status != BookingStatus.Completed)
+            return BadRequest(new { message = "You can review a visit only after it has been completed." });
+        if (req.Comment is { Length: > 2000 })
+            return BadRequest(new { message = "Comment is too long (max 2000 characters)." });
+        // JJQR - END
 
         if (await db.Reviews.AnyAsync(r => r.BookingId == req.BookingId, ct))
             return Conflict(new { message = "This visit has already been reviewed." });

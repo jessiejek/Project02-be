@@ -1,3 +1,4 @@
+using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
@@ -57,7 +58,9 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         if (patientId is not null) q = q.Where(g => g.PatientId == patientId);
         if (bookingId is not null) q = q.Where(g => g.BookingId == bookingId);
         if (doctorId is not null) q = q.Where(g => g.DoctorId == doctorId);
-        return Ok(await q.OrderByDescending(g => g.CreatedAt).ToListAsync(ct));
+        var list = await q.OrderByDescending(g => g.CreatedAt).ToListAsync(ct);
+        foreach (var pid in list.Select(g => g.PatientId).Distinct().Take(20)) await AccessLog.RecordAsync(db, actor, pid, "Prescriptions", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(list);
     }
 
     [HttpGet("prescription-groups/{id:guid}")]
@@ -65,7 +68,10 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
     {
         var g = await Groups().SingleOrDefaultAsync(x => x.GroupId == id, ct);
         if (g is null) return NotFound();
-        return (await actors.ResolveAsync(User, ct)).CanAccessPatient(g.PatientId) ? Ok(g) : NotFound();
+        var actorG = await actors.ResolveAsync(User, ct);
+        if (!actorG.CanAccessPatient(g.PatientId)) return NotFound();
+        await AccessLog.RecordAsync(db, actorG, g.PatientId, "Prescriptions", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(g);
     }
 
     [Authorize(Roles = "Doctor,Admin")]

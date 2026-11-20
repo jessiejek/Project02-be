@@ -18,7 +18,10 @@ public record RegisterRequest(
     string Password,
     [property: JsonPropertyName("dateOfBirth")] DateOnly? DateOfBirth,
     string? Sex,
-    [property: JsonPropertyName("contactNumber")] string? ContactNumber);
+    [property: JsonPropertyName("contactNumber")] string? ContactNumber,
+    // JJQR - AI (Nov 20, 2026) - PV-12: consent is only recorded when the patient ticks the (unticked-by-default) box
+    [property: JsonPropertyName("acceptedPrivacyNotice")] bool AcceptedPrivacyNotice = false);
+    // JJQR - END
 
 public record RefreshTokenRequest([property: JsonPropertyName("refreshToken")] string RefreshToken);
 

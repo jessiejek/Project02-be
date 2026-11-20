@@ -31,6 +31,14 @@ public static class AuditLogWriter
         return string.Join("; ", changed.Select(f => $"{f.Field}: {Fmt(f.OldValue)} → {Fmt(f.NewValue)}"));
     }
 
+    // JJQR - AI (Nov 20, 2026) - PV-9: the change log says WHICH fields changed, not what they contained — names, notes and complaints are not copied into a second table
+    public static string? ChangedFields(params (string Field, object? OldValue, object? NewValue)[] fields)
+    {
+        var changed = fields.Where(f => !Equals(Normalize(f.OldValue), Normalize(f.NewValue))).Select(f => f.Field).ToList();
+        return changed.Count == 0 ? null : "Changed: " + string.Join(", ", changed);
+    }
+    // JJQR - END
+
     private static object? Normalize(object? v) => v is string s && s.Length == 0 ? null : v;
 
     private static string Fmt(object? v)

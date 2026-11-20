@@ -70,6 +70,10 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     // Admin
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Announcement> Announcements => Set<Announcement>();
+    // JJQR - AI (Nov 20, 2026) - PV-12 / PV-14
+    public DbSet<PatientConsent> PatientConsents => Set<PatientConsent>();
+    public DbSet<DataRequest> DataRequests => Set<DataRequest>();
+    // JJQR - END
     public DbSet<ClinicSetting> ClinicSettings => Set<ClinicSetting>();
     public DbSet<ClinicOperatingHour> ClinicOperatingHours => Set<ClinicOperatingHour>();
     public DbSet<ClinicAcceptedPaymentMethod> ClinicAcceptedPaymentMethods => Set<ClinicAcceptedPaymentMethod>();
@@ -356,6 +360,23 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         // ── Admin ───────────────────────────────────────────────────────
         modelBuilder.Entity<AuditLog>(e => e.HasKey(a => a.Id));
         modelBuilder.Entity<Announcement>(e => e.HasKey(a => a.Id));
+        // JJQR - AI (Nov 20, 2026) - PV-12 / PV-14
+        modelBuilder.Entity<PatientConsent>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Decision).HasMaxLength(20);
+            e.HasIndex(c => new { c.PatientId, c.DecidedAt });
+        });
+        modelBuilder.Entity<DataRequest>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Kind).HasMaxLength(20);
+            e.Property(r => r.Status).HasMaxLength(20);
+            e.Property(r => r.Details).HasMaxLength(1000);
+            e.Property(r => r.ResolutionNote).HasMaxLength(1000);
+            e.HasIndex(r => new { r.PatientId, r.RequestedAt });
+        });
+        // JJQR - END
         modelBuilder.Entity<ClinicSetting>(e => e.HasKey(c => c.Id));
         modelBuilder.Entity<ClinicOperatingHour>(e =>
         {

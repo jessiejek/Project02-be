@@ -150,7 +150,12 @@ public enum AuditEntityType
     Payment,
     Settings,
     Consultation,
-    Staff
+    Staff,
+    // JJQR - AI (Nov 20, 2026) - PV-5 / PV-14: who looked at a patient record, sign-ins, and privacy requests (kept apart from the change log)
+    Access,
+    Auth,
+    DataRequest
+    // JJQR - END
 }
 
 public enum FollowUpStatus

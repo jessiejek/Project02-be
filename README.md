@@ -56,8 +56,11 @@ cd src/ClinicApp.Api
 dotnet run
 ```
 
-- Dev connection string + `Jwt:Secret` live in `appsettings.Development.json` (already set
-  for the container above; the secret there is dev-only).
+- Secrets are **not** in the repo. Copy `.env.example` to `.env` (gitignored) and set
+  `SQL_SA_PASSWORD`, `ConnectionStrings__DefaultConnection` and `Jwt__Secret`.
+  `docker compose` reads `.env` automatically; for the API load it first:
+  `set -a; source .env; set +a; cd src/ClinicApp.Api && dotnet run`.
+  The frontend's `JWT_SECRET` (`Project02-fe/.env.local`) must equal `Jwt__Secret`.
 - Listens on `http://localhost:5000` (see `Properties/launchSettings.json`).
 - Point the frontend at it later — **not yet**; Project02-fe still runs against Supabase
   until the rewire phase (plan §11).

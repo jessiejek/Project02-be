@@ -1,3 +1,4 @@
+using ClinicApp.Api.Validation;
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
@@ -82,7 +83,9 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
             .Include(p => p.Allergies)
             //JJQR - END
             .SingleOrDefaultAsync(p => p.PatientId == id, ct);
-        return patient is null ? NotFound() : Ok(patient);
+        if (patient is null) return NotFound();
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Patient record", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(patient);
     }
 
     /// <summary>Create a patient record (guest / staff quick-register). No auth
@@ -91,6 +94,9 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     [HttpPost]
     public async Task<ActionResult<Patient>> Create(Patient payload, CancellationToken ct)
     {
+        // JJQR - AI (Nov 20, 2026) - B-01 / B-33: refuse blank/oversized names, bad phone/email and a future birth date
+        if (Rules.Patient(payload).Result() is { } invalid) return invalid;
+        // JJQR - END
         var now = DateTimeOffset.UtcNow;
         payload.PatientId = payload.PatientId == Guid.Empty ? Guid.NewGuid() : payload.PatientId;
         payload.UserId = null;
@@ -106,7 +112,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
             payload.PatientCode = code;
             db.Patients.Add(payload);
             AuditLogWriter.Add(db, AuditEntityType.Patient, payload.PatientId, "Created", userId,
-                $"Name: {payload.FirstName} {payload.LastName}; Code: {code}");
+                $"Code: {code}"); // JJQR - AI (Nov 20, 2026) - PV-9: no patient name in the log // JJQR - END
         }, ct);
         return CreatedAtAction(nameof(GetById), new { id = payload.PatientId }, payload);
     }
@@ -136,8 +142,11 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
 
     [HttpGet("{id:guid}/vaccinations")]
     [Authorize(Roles = "Admin,Staff,Doctor")]
-    public async Task<ActionResult<List<PatientVaccination>>> GetVaccinations(Guid id, CancellationToken ct) =>
-        Ok(await db.PatientVaccinations.AsNoTracking().Where(v => v.PatientId == id).OrderByDescending(v => v.AdministeredDate).ToListAsync(ct));
+    public async Task<ActionResult<List<PatientVaccination>>> GetVaccinations(Guid id, CancellationToken ct)
+    {
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Vaccinations", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(await db.PatientVaccinations.AsNoTracking().Where(v => v.PatientId == id).OrderByDescending(v => v.AdministeredDate).ToListAsync(ct));
+    }
 
     //JJQR - AI (Oct 31, 2026)
     [HttpGet("{id:guid}/allergies")]
@@ -145,6 +154,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     public async Task<ActionResult<List<PatientAllergy>>> GetAllergies(Guid id, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Allergies", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return Ok(await db.PatientAllergies.AsNoTracking()
             .Where(a => a.PatientId == id)
             .OrderBy(a => a.Allergen)
@@ -200,6 +210,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     public async Task<ActionResult<List<PatientLabValue>>> GetLabValues(Guid id, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Lab values", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return Ok(await db.PatientLabValues.AsNoTracking()
             .Where(v => v.PatientId == id)
             .OrderByDescending(v => v.ObservedAt)
@@ -214,6 +225,11 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
 
         var patient = await db.Patients.SingleOrDefaultAsync(p => p.PatientId == id, ct);
         if (patient is null) return NotFound();
+
+        // JJQR - AI (Nov 20, 2026) - B-01 / B-33: same rules as create (email is not editable here, so it is not checked)
+        payload.Email = patient.Email;
+        if (Rules.Patient(payload).Result() is { } invalid) return invalid;
+        // JJQR - END
 
         var before = new
         {
@@ -242,7 +258,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         patient.HmoCardNumber = payload.HmoCardNumber;
         patient.UpdatedAt = DateTimeOffset.UtcNow;
 
-        var details = AuditLogWriter.DiffDetails(
+        var details = AuditLogWriter.ChangedFields( // JJQR - AI (Nov 20, 2026) - PV-9: field names only // JJQR - END
             ("First name", before.FirstName, patient.FirstName), ("Middle name", before.MiddleName, patient.MiddleName),
             ("Last name", before.LastName, patient.LastName), ("Date of birth", before.DateOfBirth, patient.DateOfBirth),
             ("Sex", before.Sex, patient.Sex), ("Civil status", before.CivilStatus, patient.CivilStatus),
@@ -259,20 +275,31 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         return Ok(patient);
     }
 
-    /// <summary>PATCH-style consent update per contract §10.</summary>
+    /// <summary>Consent acceptance per contract §10 (body = version number).
+    // JJQR - AI (Nov 20, 2026) - PV-2/PV-12: only the patient themself can consent for themself (staff could before), the version can't be one the clinic never published,
+    // and the decision is also written to the consent history. Declining / withdrawing: POST /api/patients/{id}/consent-decision.</summary>
     [HttpPut("{id:guid}/consent")]
     public async Task<IActionResult> UpdateConsent(Guid id, [FromBody] int consentVersion, CancellationToken ct)
     {
-        if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.IsPatient || actor.PatientId != id) return NotFound();
 
         var patient = await db.Patients.SingleOrDefaultAsync(p => p.PatientId == id, ct);
         if (patient is null) return NotFound();
 
+        var current = await db.ClinicSettings.AsNoTracking().Where(s => s.Id == 1).Select(s => (int?)s.ConsentVersion).SingleOrDefaultAsync(ct) ?? 1;
+        if (consentVersion < 1 || consentVersion > current) return BadRequest(new { message = "That privacy notice version does not exist." });
+
+        var now = DateTimeOffset.UtcNow;
         patient.ConsentVersion = consentVersion;
-        patient.ConsentedAt = DateTimeOffset.UtcNow;
+        patient.ConsentedAt = now;
+        patient.ConsentWithdrawnAt = null;
+        db.PatientConsents.Add(new PatientConsent { Id = Guid.NewGuid(), PatientId = id, ConsentVersion = consentVersion, Decision = ConsentDecision.Accepted, DecidedAt = now });
+        AuditLogWriter.Add(db, AuditEntityType.Patient, id, "ConsentAccepted", actor.UserId, $"Privacy notice v{consentVersion}");
         await db.SaveChangesAsync(ct);
         return Ok(patient);
     }
+    // JJQR - END
 
     private Guid? CurrentUserId()
     {

@@ -20,6 +20,10 @@ public record RefundPaymentRequest(decimal Amount, string Reason);
 [Route("api/payments")]
 public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, ActorResolver actors) : ControllerBase
 {
+    // JJQR - AI (Nov 20, 2026) - B-02: upper sanity bound for a single over-the-counter payment
+    private const decimal MaxAmountReceived = 100_000m;
+    // JJQR - END
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Payment>> GetById(Guid id, CancellationToken ct)
     {
@@ -46,11 +50,28 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         if (illegalConfirm is not null)
             return BadRequest(new { message = illegalConfirm });
 
+        // JJQR - AI (Nov 20, 2026) - B-02: the amount handed over must be a sane number that covers the fee
+        // (cash may be more — change is given back — but never below the fee, zero, negative or absurd)
+        if (!Enum.IsDefined(request.PaymentMethod))
+            return BadRequest(new { message = "Choose a valid payment method." });
+        if (request.AmountReceived is { } received)
+        {
+            if (received <= 0 && payment.Amount > 0)
+                return BadRequest(new { message = "Amount received must be greater than zero." });
+            if (received < payment.Amount)
+                return BadRequest(new { message = $"Amount received (₱{received:0.##}) is less than the amount due (₱{payment.Amount:0.##})." });
+            if (received > MaxAmountReceived)
+                return BadRequest(new { message = $"Amount received cannot be more than ₱{MaxAmountReceived:N0}." });
+        }
+        if (request.ReferenceNumber is { Length: > 100 } || request.OrNumber is { Length: > 100 } || request.ConfirmNotes is { Length: > 1000 })
+            return BadRequest(new { message = "Reference number, OR number or notes are too long." });
+        // JJQR - END
+
         payment.Status = PaymentStatus.Paid;
         payment.PaymentMethod = request.PaymentMethod;
         payment.ReferenceNumber = request.ReferenceNumber;
         payment.OrNumber = request.OrNumber;
-        payment.AmountReceived = request.AmountReceived;
+        payment.AmountReceived = request.AmountReceived ?? payment.Amount; // JJQR - AI (Nov 20, 2026) - B-02: no amount typed = exact fee
         payment.ConfirmNotes = request.ConfirmNotes;
         payment.ConfirmedByUserId = CurrentUserId();
         payment.ConfirmedAt = DateTimeOffset.UtcNow;
@@ -129,6 +150,17 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         var illegalRefund = PaymentStatusMachine.RejectReason(payment.Status, PaymentStatus.Refunded);
         if (illegalRefund is not null)
             return BadRequest(new { message = illegalRefund });
+
+        // JJQR - AI (Nov 20, 2026) - B-38: you can only refund what was paid
+        if (request.Amount <= 0)
+            return BadRequest(new { message = "Refund amount must be greater than zero." });
+        if (request.Amount > payment.Amount)
+            return BadRequest(new { message = $"Refund amount cannot be more than the amount paid (₱{payment.Amount:0.##})." });
+        if (string.IsNullOrWhiteSpace(request.Reason))
+            return BadRequest(new { message = "A refund reason is required." });
+        if (request.Reason.Length > 1000)
+            return BadRequest(new { message = "Refund reason is too long (max 1000 characters)." });
+        // JJQR - END
 
         payment.Status = PaymentStatus.Refunded;
         payment.RefundAmount = request.Amount;
