@@ -64,6 +64,13 @@ builder.Services.AddSingleton<PasswordHasherService>();
 
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtSecret = jwtSection["Secret"] ?? throw new InvalidOperationException("Jwt:Secret is not configured.");
+// JJQR - AI (Nov 20, 2026) - PV-8: production must bring its own signing secret (env var Jwt__Secret); the one committed in appsettings*.json is for local development only
+if (builder.Environment.IsProduction() &&
+    (jwtSecret.Length < 32 || System.Text.RegularExpressions.Regex.IsMatch(jwtSecret, "change|dev|placeholder|replace|example|secret", System.Text.RegularExpressions.RegexOptions.IgnoreCase)))
+{
+    throw new InvalidOperationException("Jwt:Secret looks like the development placeholder. Set a long random value in the Jwt__Secret environment variable.");
+}
+// JJQR - END
 
 builder.Services.AddAuthentication(options =>
     {
@@ -214,6 +221,9 @@ if (app.Environment.IsDevelopment())
 // §17.2 — correlation id + structured request logging, before anything that logs.
 app.UseMiddleware<RequestContextMiddleware>();
 
+// JJQR - AI (Nov 20, 2026) - PV-6: outside development, tell browsers to use HTTPS only (HSTS) as well as redirecting plain HTTP
+if (!app.Environment.IsDevelopment()) app.UseHsts();
+// JJQR - END
 app.UseHttpsRedirection();
 
 // Uploaded patient documents / lab results are PHI: they are NOT mounted as static
