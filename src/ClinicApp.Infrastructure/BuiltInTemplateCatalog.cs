@@ -44,8 +44,8 @@ public static class BuiltInTemplateCatalog
             "Essential (primary) hypertension; blood pressure at goal on current regimen."),
         new(K("d1111111-1111-4111-8111-111111111103"), "E11.9 — Type 2 DM",
             "Type 2 diabetes mellitus without complications; glycemic control per recent labs."),
-        //JJQR - AI (Nov 20, 2026) B2 — A09 (US unspecified) -> WHO A09.0
-        new(K("d1111111-1111-4111-8111-111111111104"), "A09.0 — Other and unspecified gastroenteritis and colitis of infectious origin",
+        //JJQR - AI (Nov 20, 2026) B2 — A09 (US unspecified) -> WHO A09.0 (short label kept so the remapped existing row is adopted, not duplicated)
+        new(K("d1111111-1111-4111-8111-111111111104"), "A09.0 — Infectious gastroenteritis",
             "Acute infectious gastroenteritis, presumed viral; mild dehydration."),
         new(K("d1111111-1111-4111-8111-111111111105"), "N39.0 — UTI",
             "Urinary tract infection, site not specified; uncomplicated cystitis."),
