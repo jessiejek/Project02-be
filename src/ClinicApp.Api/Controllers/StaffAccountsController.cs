@@ -1,3 +1,4 @@
+using ClinicApp.Api.Validation;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -99,6 +100,7 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         var self = CurrentUserId() == row.UserId;
         var isAdmin = User.IsInRole("Admin");
         if (!self && !isAdmin) return Forbid();
+        if (Rules.Staff(payload).Result() is { } invalid) return invalid; // JJQR - AI (Nov 20, 2026) - B-01
 
         row.FullName = payload.FullName;
         row.ContactNumber = payload.ContactNumber;

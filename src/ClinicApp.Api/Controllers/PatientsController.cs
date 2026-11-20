@@ -1,3 +1,4 @@
+using ClinicApp.Api.Validation;
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
@@ -91,6 +92,9 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     [HttpPost]
     public async Task<ActionResult<Patient>> Create(Patient payload, CancellationToken ct)
     {
+        // JJQR - AI (Nov 20, 2026) - B-01 / B-33: refuse blank/oversized names, bad phone/email and a future birth date
+        if (Rules.Patient(payload).Result() is { } invalid) return invalid;
+        // JJQR - END
         var now = DateTimeOffset.UtcNow;
         payload.PatientId = payload.PatientId == Guid.Empty ? Guid.NewGuid() : payload.PatientId;
         payload.UserId = null;
@@ -214,6 +218,11 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
 
         var patient = await db.Patients.SingleOrDefaultAsync(p => p.PatientId == id, ct);
         if (patient is null) return NotFound();
+
+        // JJQR - AI (Nov 20, 2026) - B-01 / B-33: same rules as create (email is not editable here, so it is not checked)
+        payload.Email = patient.Email;
+        if (Rules.Patient(payload).Result() is { } invalid) return invalid;
+        // JJQR - END
 
         var before = new
         {

@@ -1,3 +1,4 @@
+using ClinicApp.Api.Validation;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
@@ -70,6 +71,10 @@ public class VaccinationsController(ClinicAppDbContext db, ActorResolver actors)
         if (consult is null) return NotFound(new { message = "Consultation not found." });
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(consult.DoctorId)) return Forbid();
 
+        // JJQR - AI (Nov 20, 2026) - B-01: a staged dose needs a vaccine name; reject blank / oversized / bad dose numbers
+        foreach (var i in items)
+            if (Rules.Vaccination(i.VaccineName, i.Manufacturer, i.DoseNumber, i.Route, i.Site, i.LotNumber, i.Notes).Result() is { } invalid) return invalid;
+        // JJQR - END
         var existing = db.PatientVaccinations.Where(v =>
             v.ConsultationId == consultationId && v.Source == VaccinationSource.AdministeredInClinic);
         db.PatientVaccinations.RemoveRange(existing);
@@ -118,6 +123,9 @@ public class VaccinationsController(ClinicAppDbContext db, ActorResolver actors)
     [HttpPost]
     public async Task<ActionResult<PatientVaccination>> Create(CreateVaccinationRequest req, CancellationToken ct)
     {
+        // JJQR - AI (Nov 20, 2026) - B-01
+        if (Rules.Vaccination(req.VaccineName, req.Manufacturer, req.DoseNumber, req.Route, req.Site, req.LotNumber, req.Notes).Result() is { } invalid) return invalid;
+        // JJQR - END
         var now = DateTimeOffset.UtcNow;
         var row = new PatientVaccination
         {

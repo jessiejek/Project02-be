@@ -1,3 +1,4 @@
+using ClinicApp.Api.Validation;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -22,6 +23,7 @@ public class AnnouncementsController(ClinicAppDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult<Announcement>> Create(Announcement payload, CancellationToken ct)
     {
+        if (Rules.Announcement(payload).Result() is { } invalid) return invalid; // JJQR - AI (Nov 20, 2026) - B-01
         var now = DateTimeOffset.UtcNow;
         payload.Id = Guid.NewGuid();
         payload.PostedByUserId = CurrentUserId();
@@ -39,6 +41,7 @@ public class AnnouncementsController(ClinicAppDbContext db) : ControllerBase
     {
         var announcement = await db.Announcements.SingleOrDefaultAsync(a => a.Id == id, ct);
         if (announcement is null) return NotFound();
+        if (Rules.Announcement(payload).Result() is { } invalid) return invalid; // JJQR - AI (Nov 20, 2026) - B-01
 
         announcement.Title = payload.Title;
         announcement.Body = payload.Body;

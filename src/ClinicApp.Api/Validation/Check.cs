@@ -93,7 +93,7 @@ public sealed partial class Check
     }
 
     /// <summary>Null when valid; otherwise the 400 the controller should return.</summary>
-    public IActionResult? Result() =>
+    public BadRequestObjectResult? Result() =>
         Ok ? null : new BadRequestObjectResult(new { message = string.Join(" ", _errors.Values), errors = _errors });
 
     [GeneratedRegex(@"^[0-9+()\-.\s]{7,20}$")] private static partial Regex PhoneRx();

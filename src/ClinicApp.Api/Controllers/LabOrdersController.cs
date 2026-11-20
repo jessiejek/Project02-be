@@ -1,3 +1,4 @@
+using ClinicApp.Api.Validation;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
@@ -92,6 +93,10 @@ public class LabOrdersController(ClinicAppDbContext db, ActorResolver actors) : 
         if (consult is null) return NotFound(new { message = "Consultation not found." });
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(consult.DoctorId)) return Forbid();
 
+        // JJQR - AI (Nov 20, 2026) - B-01: every row needs a test name (the UI drops blank rows before sending)
+        foreach (var o in orders)
+            if (Rules.LabOrder(o).Result() is { } invalid) return invalid;
+        // JJQR - END
         var existing = db.LabOrders.Where(l => l.ConsultationId == consultationId);
         db.LabOrders.RemoveRange(existing);
 
