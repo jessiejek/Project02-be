@@ -41,6 +41,17 @@ public class LocalFileStorageService(FileStorageOptions options) : IFileStorageS
             throw new InvalidOperationException($"File exceeds the {options.MaxFileSizeBytes / (1024 * 1024)} MB limit.");
         }
 
+        // JJQR - AI (Nov 20, 2026) - PV-7: name and first bytes must match the claimed type
+        var head = new byte[16];
+        content.Position = 0;
+        var read = await content.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct);
+        content.Position = 0;
+        if (FileSignature.Problem(fileName, contentType, head.AsSpan(0, read)) is { } problem)
+        {
+            throw new InvalidOperationException(problem);
+        }
+        // JJQR - END
+
         var sanitized = Sanitize(fileName);
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var relativeDir = Path.Combine(patientId.ToString(), bookingId.ToString());

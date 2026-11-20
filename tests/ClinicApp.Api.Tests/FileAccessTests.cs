@@ -108,7 +108,7 @@ public class FileAccessTests(ApiFixture api) : ApiTestBase(api)
         };
         if (consultationId is not null) form.Add(new StringContent(consultationId.ToString()!), "consultationId");
         if (labOrderId is not null) form.Add(new StringContent(labOrderId.ToString()!), "labOrderId");
-        var file = new ByteArrayContent(Encoding.UTF8.GetBytes(content));
+        var file = new ByteArrayContent(Encoding.UTF8.GetBytes((contentType == "application/pdf" ? "%PDF-1.4\n" : "") + content)); // JJQR - AI (Nov 20, 2026) - PV-7: a real PDF starts with %PDF- // JJQR - END
         file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         form.Add(file, "file", "scan.pdf");
         return form;
@@ -123,7 +123,7 @@ public class FileAccessTests(ApiFixture api) : ApiTestBase(api)
         var id = (await JsonOf(res)).GetProperty("id").GetGuid();
         var dl = await a.GetAsync($"/api/patient-documents/{id}/file");
         await ShouldBe(HttpStatusCode.OK, dl);
-        Assert.Equal("fresh-upload", await dl.Content.ReadAsStringAsync());
+        Assert.Equal("%PDF-1.4\nfresh-upload", await dl.Content.ReadAsStringAsync()); // JJQR - AI (Nov 20, 2026) - PV-7: the helper now sends a real PDF header // JJQR - END
 
         using var b = F.Patient(W.PatientB);
         await ShouldBe(HttpStatusCode.NotFound, await b.GetAsync($"/api/patient-documents/{id}/file"));
@@ -150,6 +150,30 @@ public class FileAccessTests(ApiFixture api) : ApiTestBase(api)
         using var a = F.Patient(W.PatientA);
         await ShouldBe(HttpStatusCode.BadRequest, await a.PostAsync("/api/patient-documents", Upload(W.PatientA.RowId, W.BookingA, contentType: "text/html", content: "<script>alert(1)</script>")));
     }
+
+    // JJQR - AI (Nov 20, 2026) - PV-7: the server checks the file's own bytes and name, not only the claimed content type
+    private static MultipartFormDataContent RawUpload(Guid patientId, Guid bookingId, string fileName, string contentType, byte[] bytes)
+    {
+        var form = new MultipartFormDataContent { { new StringContent(patientId.ToString()), "patientId" }, { new StringContent(bookingId.ToString()), "bookingId" } };
+        var file = new ByteArrayContent(bytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(file, "file", fileName);
+        return form;
+    }
+
+    [Fact]
+    public async Task Upload_rejects_a_file_that_is_not_what_it_claims_to_be()
+    {
+        using var a = F.Patient(W.PatientA);
+        var url = "/api/patient-documents";
+        var pdf = Encoding.ASCII.GetBytes("%PDF-1.4\n%%EOF");
+        await ShouldBe(HttpStatusCode.BadRequest, await a.PostAsync(url, RawUpload(W.PatientA.RowId, W.BookingA, "scan.pdf", "application/pdf", new byte[] { 0x4D, 0x5A, 0x90, 0x00 }))); // Windows program called a pdf
+        await ShouldBe(HttpStatusCode.BadRequest, await a.PostAsync(url, RawUpload(W.PatientA.RowId, W.BookingA, "scan.exe", "application/pdf", pdf)));                                  // right bytes, wrong extension
+        await ShouldBe(HttpStatusCode.BadRequest, await a.PostAsync(url, RawUpload(W.PatientA.RowId, W.BookingA, "scan.png", "image/png", pdf)));                                       // pdf bytes called a png
+        await ShouldBe(HttpStatusCode.OK, await a.PostAsync(url, RawUpload(W.PatientA.RowId, W.BookingA, "scan.png", "image/png", new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0 })));
+        await ShouldBe(HttpStatusCode.OK, await a.PostAsync(url, RawUpload(W.PatientA.RowId, W.BookingA, "scan.PDF", "application/pdf", pdf)));
+    }
+    // JJQR - END
 
     [Fact]
     public async Task Anonymous_cannot_upload()
