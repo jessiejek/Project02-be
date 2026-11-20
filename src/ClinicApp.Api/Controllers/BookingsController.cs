@@ -539,10 +539,16 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
     [Authorize(Roles = "Admin,Staff")]
     [HttpGet("staff/today")]
     public async Task<ActionResult<PagedResult<Booking>>> GetStaffToday(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null, CancellationToken ct = default)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? q = null,
+        // JJQR - AI (Nov 20, 2026) - B-42: the front-desk dashboard asks for live rows only (no Cancelled / Expired), so they are neither listed nor counted
+        [FromQuery] bool activeOnly = false,
+        // JJQR - END
+        CancellationToken ct = default)
     {
         var today = ClinicApp.Domain.ClinicClock.Today;
-        var query = SearchBookings(WithEmbeds().Where(b => b.AppointmentDate == today), q).OrderBy(b => b.SlotStartTime);
+        var todays = WithEmbeds().Where(b => b.AppointmentDate == today);
+        if (activeOnly) todays = todays.Where(b => b.Status != BookingStatus.Cancelled && b.Status != BookingStatus.Expired);
+        var query = SearchBookings(todays, q).OrderBy(b => b.SlotStartTime);
         return Ok(await PageAsync(query, page, pageSize, ct));
     }
 
