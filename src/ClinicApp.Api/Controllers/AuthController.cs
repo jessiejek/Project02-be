@@ -35,6 +35,13 @@ public class AuthController(
             return Unauthorized(new { message = "Invalid email or password." });
         }
 
+        // JJQR - AI (Nov 20, 2026) - B-32: a deactivated staff account must not get a session
+        if (!await ClinicApp.Api.Security.AccountGuard.IsActiveAsync(db, user.Id, ct))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ClinicApp.Api.Security.AccountGuard.DeactivatedMessage });
+        }
+        // JJQR - END
+
         var session = await BuildSessionAsync(user, ct);
         if (session is null)
         {
@@ -111,6 +118,15 @@ public class AuthController(
         {
             return Unauthorized(new { message = "Refresh token is invalid or expired." });
         }
+
+        // JJQR - AI (Nov 20, 2026) - B-32: a deactivated account cannot refresh into a new session
+        if (!await ClinicApp.Api.Security.AccountGuard.IsActiveAsync(db, existing.UserId, ct))
+        {
+            existing.RevokedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return Unauthorized(new { message = ClinicApp.Api.Security.AccountGuard.DeactivatedMessage });
+        }
+        // JJQR - END
 
         // Rotate: revoke the old token, issue a new pair.
         existing.RevokedAt = DateTimeOffset.UtcNow;

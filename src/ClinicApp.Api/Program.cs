@@ -89,6 +89,23 @@ builder.Services.AddAuthentication(options =>
         // for the hub path, never for regular API requests.
         options.Events = new JwtBearerEvents
         {
+            // JJQR - AI (Nov 20, 2026) - B-32: a deactivated / deleted account's still-unexpired access
+            // token must stop working immediately, not at expiry
+            OnTokenValidated = async context =>
+            {
+                var sub = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(sub, out var uid))
+                {
+                    context.Fail("Invalid token subject.");
+                    return;
+                }
+                var db = context.HttpContext.RequestServices.GetRequiredService<ClinicAppDbContext>();
+                if (!await ClinicApp.Api.Security.AccountGuard.IsActiveAsync(db, uid, context.HttpContext.RequestAborted))
+                {
+                    context.Fail("Account is not active.");
+                }
+            },
+            // JJQR - END
             OnMessageReceived = context =>
             {
                 var accessToken = context.Request.Query["access_token"];

@@ -104,7 +104,16 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         row.ContactNumber = payload.ContactNumber;
         // Only an Admin changing someone else's row may change status; a self-edit keeps it.
         if (!self && isAdmin)
+        {
             row.Status = payload.Status;
+            // JJQR - AI (Nov 20, 2026) - B-32: deactivating also ends every existing session
+            if (payload.Status == StaffStatus.Inactive)
+            {
+                var live = await db.RefreshTokens.Where(t => t.UserId == row.UserId && t.RevokedAt == null).ToListAsync(ct);
+                foreach (var t in live) t.RevokedAt = DateTimeOffset.UtcNow;
+            }
+            // JJQR - END
+        }
 
         await db.SaveChangesAsync(ct);
         return Ok(row);
