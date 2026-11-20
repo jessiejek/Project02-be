@@ -36,7 +36,15 @@ public static class DevDataSeeder
         (Guid.Parse("60310394-4c74-4370-9cd3-47b22c4cbfb8"), "doctor@clinic.test",      UserRole.Doctor),
         (Guid.Parse("857757af-9545-485b-8981-5a2043f54fe9"), "phase5doctor@clinic.test", UserRole.Doctor),
         (Guid.Parse("f3c7d22e-9f67-4511-ae1a-73b30b2fc4e6"), "patient@clinic.test",     UserRole.Patient),
+        // JJQR - AI (Nov 20, 2026) - B-32: a spare front-desk login the e2e suite can deactivate/reactivate without disturbing staff@clinic.test
+        (SpareStaffId,                                       SpareStaffEmail,           UserRole.Staff),
+        // JJQR - END
     ];
+
+    // JJQR - AI (Nov 20, 2026) - B-32
+    public const string SpareStaffEmail = "spare-staff@clinic.test";
+    private static readonly Guid SpareStaffId = Guid.Parse("c2d6b0a4-7f0e-4c1e-9a55-3b8f0d1e7a42");
+    // JJQR - END
 
     public static async Task SeedAsync(ClinicAppDbContext db, PasswordHasherService hasher, ILogger logger, CancellationToken ct = default)
     {
@@ -53,6 +61,18 @@ public static class DevDataSeeder
             db.Profiles.Add(new Profile { Id = id, Role = role, CreatedAt = now });
             created++;
         }
+
+        // JJQR - AI (Nov 20, 2026) - B-32: the spare login gets its staff_accounts row (the five originals are mirrored from Supabase)
+        if (!await db.StaffAccounts.AnyAsync(a => a.UserId == SpareStaffId, ct) && (db.Users.Local.Any(u => u.Id == SpareStaffId) || await db.Users.AnyAsync(u => u.Id == SpareStaffId, ct)))
+        {
+            db.StaffAccounts.Add(new StaffAccount
+            {
+                StaffId = SpareStaffId, UserId = SpareStaffId, FullName = "Spare Staff (dev)", Email = SpareStaffEmail,
+                Role = StaffRole.Staff, Status = StaffStatus.Active, InvitedAt = now, CreatedAt = now, UpdatedAt = now,
+            });
+            created++;
+        }
+        // JJQR - END
 
         if (created > 0)
         {
