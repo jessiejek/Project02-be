@@ -352,7 +352,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
 
     /// <summary>Why a scheduled (non-walk-in) booking cannot be made for this day, or null when it can:
     /// the clinic's operating hours mark that weekday closed (B-29), the doctor blocked the date, or the
-    /// doctor's weekly schedule has that weekday off (B-06). A doctor with no schedule rows at all is
+    /// doctor's weekly schedule has that weekday off (B-06). A doctor with no working day at all is
     /// treated as "no schedule configured" and is not restricted by weekday.</summary>
     private async Task<string?> ClosedReasonAsync(DateOnly date, Guid doctorId, CancellationToken ct)
     {
@@ -364,12 +364,13 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         if (await db.DoctorBlockedDates.AsNoTracking().AnyAsync(b => b.DoctorId == doctorId && b.BlockedDate == date, ct))
             return "The doctor is not available on that date. Please choose another day.";
 
+        // The weekly schedule only restricts booking once someone has actually set one up (at least one working
+        // day). A doctor whose 7 rows are all switched off — the default state — means "no schedule configured".
         var schedule = await db.DoctorSchedules.AsNoTracking().Where(x => x.DoctorId == doctorId).ToListAsync(ct);
-        if (schedule.Count > 0)
+        if (schedule.Any(x => x.IsActive))
         {
             var day = schedule.FirstOrDefault(x => x.DayOfWeek == dow);
-            var anyActive = schedule.Any(x => x.IsActive);
-            if ((day is not null && !day.IsActive) || (day is null && anyActive))
+            if (day is null || !day.IsActive)
                 return $"The doctor does not see patients on {date.DayOfWeek}s. Please choose another day.";
         }
         return null;

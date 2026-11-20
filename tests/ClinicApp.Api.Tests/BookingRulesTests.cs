@@ -76,24 +76,40 @@ public class BookingRulesTests(ApiFixture api) : ApiTestBase(api)
     {
         var doctor = await TestHelpers.BookingDoctorAsync(F);
         var d = TestHelpers.FutureDate(DayOfWeek.Saturday);
-        var rowId = Guid.NewGuid();
-        await WithDb(async db => { db.DoctorSchedules.Add(new DoctorSchedule { Id = rowId, DoctorId = doctor, DayOfWeek = (short)d.DayOfWeek, IsActive = false, StartTime = new TimeOnly(9, 0), EndTime = new TimeOnly(17, 0), CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow }); await db.SaveChangesAsync(); return 0; });
+        var offId = Guid.NewGuid();
+        var onId = Guid.NewGuid();
+        DoctorSchedule Row(Guid id, DayOfWeek dow, bool active) => new() { Id = id, DoctorId = doctor, DayOfWeek = (short)dow, IsActive = active, StartTime = new TimeOnly(9, 0), EndTime = new TimeOnly(17, 0), CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        // a real schedule: works Mondays, explicitly off on Saturdays (and Tuesday has no row at all)
+        await WithDb(async db => { db.DoctorSchedules.AddRange(Row(offId, d.DayOfWeek, false), Row(onId, DayOfWeek.Monday, true)); await db.SaveChangesAsync(); return 0; });
         try
         {
             using var c = await NewPatientClient();
-            await ShouldBe(HttpStatusCode.BadRequest, await Book(c, d));
+            await ShouldBe(HttpStatusCode.BadRequest, await Book(c, d));                                         // Saturday: row says off
+            await ShouldBe(HttpStatusCode.BadRequest, await Book(c, TestHelpers.FutureDate(DayOfWeek.Tuesday))); // Tuesday: no row while a schedule exists
+            await ShouldBe(HttpStatusCode.Created, await Book(c, TestHelpers.FutureDate(DayOfWeek.Monday, 1)));  // Monday: works
+        }
+        finally
+        {
+            await WithDb(async db => { db.DoctorSchedules.RemoveRange(db.DoctorSchedules.Where(x => x.Id == offId || x.Id == onId)); await db.SaveChangesAsync(); return 0; });
+        }
+    }
+
+    [Fact]
+    public async Task A_doctor_with_no_working_day_configured_is_not_restricted_by_weekday()
+    {
+        var doctor = await TestHelpers.BookingDoctorAsync(F);
+        var rowId = Guid.NewGuid();
+        // all-off rows (how a doctor starts) mean "nothing configured", not "never works"
+        await WithDb(async db => { db.DoctorSchedules.Add(new DoctorSchedule { Id = rowId, DoctorId = doctor, DayOfWeek = (short)DayOfWeek.Saturday, IsActive = false, StartTime = new TimeOnly(9, 0), EndTime = new TimeOnly(17, 0), CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow }); await db.SaveChangesAsync(); return 0; });
+        try
+        {
+        using var c = await NewPatientClient();
+        await ShouldBe(HttpStatusCode.Created, await Book(c, TestHelpers.FutureDate(DayOfWeek.Saturday, 2)));
         }
         finally
         {
             await WithDb(async db => { db.DoctorSchedules.Remove(await db.DoctorSchedules.SingleAsync(x => x.Id == rowId)); await db.SaveChangesAsync(); return 0; });
         }
-    }
-
-    [Fact]
-    public async Task A_doctor_with_no_schedule_rows_is_not_restricted_by_weekday()
-    {
-        using var c = await NewPatientClient();
-        await ShouldBe(HttpStatusCode.Created, await Book(c, TestHelpers.FutureDate(DayOfWeek.Saturday, 2)));
     }
 
     // ── B-29 ─────────────────────────────────────────────────────────────
