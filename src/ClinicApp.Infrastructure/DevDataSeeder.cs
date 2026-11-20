@@ -351,6 +351,11 @@ public static class DevDataSeeder
                     Quantity = line.Qty,
                     Instruction = line.Instruction,
                     IsControlledSubstance = false,
+                    //JJQR - AI (Nov 20, 2026) - Rx pad fields (meal timing / times / as needed) derived from the sig, same rules as the FE sig parser
+                    AsNeeded = RxPadFromSig(line.Instruction).AsNeeded,
+                    Timing = RxPadFromSig(line.Instruction).Timing,
+                    MealRelation = RxPadFromSig(line.Instruction).Meal,
+                    //JJQR - END
                     CreatedAt = now,
                 });
                 rxItemsCreated++;
@@ -770,4 +775,23 @@ public static class DevDataSeeder
             patientsCreated, allergiesCreated, labValuesCreated, bookingsCreated, labCatalogCreated);
         //JJQR - END
     }
+    //JJQR - AI (Nov 20, 2026) - deterministic sig -> Rx pad fields for seeded Rx templates (mirrors Project02-fe src/lib/rx-sig-parse.ts for the sigs used here)
+    private static (bool AsNeeded, string? Timing, string? Meal) RxPadFromSig(string sig)
+    {
+        var t = sig.ToLowerInvariant();
+        bool Has(string pattern) => System.Text.RegularExpressions.Regex.IsMatch(t, pattern);
+        var asNeeded = Has(@"\bprn\b|\bas needed\b|after each loose stool|\bstat\b");
+        string? meal = Has(@"\bbefore (meals?|food|breakfast|lunch|dinner)\b|\bempty stomach\b") ? "Before"
+            : Has(@"\bafter (meals?|food|eating)\b|\bwith (meals?|food)\b") ? "After" : null;
+        string? timing = null;
+        if (!asNeeded)
+        {
+            if (Has(@"\bqid\b|\bq6h\b|\bq4h\b")) timing = "Breakfast, Lunch, Dinner, Bedtime";
+            else if (Has(@"\btid\b|\bq8h\b|\bthree times\b")) timing = "Breakfast, Lunch, Dinner";
+            else if (Has(@"\bbid\b|\bq12h\b|\btwice daily\b")) timing = "Breakfast, Dinner";
+            else if (Has(@"\b(od|qd|once daily|once a day|daily)\b")) timing = Has(@"bedtime|at night|\bhs\b") ? "Bedtime" : "Breakfast";
+        }
+        return (asNeeded, timing, meal);
+    }
+    //JJQR - END
 }

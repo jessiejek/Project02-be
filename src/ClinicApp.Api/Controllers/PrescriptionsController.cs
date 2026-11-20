@@ -15,7 +15,9 @@ public record RxItemInput(
     string? Timing = null, string? MealRelation = null,
     string? DurationKind = null, int? DurationValue = null, string? Indication = null,
     //JJQR - AI (Oct 31, 2026)
-    string? Route = null);
+    string? Route = null,
+    //JJQR - AI (Nov 20, 2026) - Rx pad "as needed" flag (nullable: older clients omit it)
+    bool? AsNeeded = null);
 //JJQR - END
 public record UpsertRxGroupRequest(Guid PatientId, Guid DoctorId, Guid BookingId, List<RxItemInput> Items);
 public record UpsertRxTemplateRequest(Guid DoctorId, string Title, bool IsSystemTemplate, List<RxItemInput> Items);
@@ -122,6 +124,9 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
                 //JJQR - AI (Oct 31, 2026)
                 Route = i.Route,
                 //JJQR - END
+                //JJQR - AI (Nov 20, 2026)
+                AsNeeded = i.AsNeeded,
+                //JJQR - END
                 CreatedAt = now
             });
         }
@@ -175,6 +180,9 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
                 Timing = i.Timing, MealRelation = i.MealRelation, DurationKind = i.DurationKind,
                 DurationValue = i.DurationValue, Indication = i.Indication, Route = i.Route,
                 //JJQR - END
+                //JJQR - AI (Nov 20, 2026)
+                AsNeeded = i.AsNeeded,
+                //JJQR - END
                 CreatedAt = now
             });
         await db.SaveChangesAsync(ct);
@@ -204,6 +212,9 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
                 //JJQR - AI (Nov 19, 2026) - persist the structured Rx-pad fields instead of dropping them
                 Timing = i.Timing, MealRelation = i.MealRelation, DurationKind = i.DurationKind,
                 DurationValue = i.DurationValue, Indication = i.Indication, Route = i.Route,
+                //JJQR - END
+                //JJQR - AI (Nov 20, 2026)
+                AsNeeded = i.AsNeeded,
                 //JJQR - END
                 CreatedAt = now
             });

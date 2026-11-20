@@ -2320,6 +2320,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<bool?>("AsNeeded")
+                        .HasColumnType("bit")
+                        .HasColumnName("as_needed");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -2430,6 +2434,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
+
+                    b.Property<bool?>("AsNeeded")
+                        .HasColumnType("bit")
+                        .HasColumnName("as_needed");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")

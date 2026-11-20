@@ -44,6 +44,9 @@ public class PrescriptionLineItem
     //JJQR - AI (Oct 31, 2026)
     public string? Route { get; set; }
     //JJQR - END
+    //JJQR - AI (Nov 20, 2026) - Rx pad "as needed" (PRN) flag; null = not recorded (legacy rows), true/false = the doctor's choice
+    public bool? AsNeeded { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
 
     [JsonIgnore] public PrescriptionGroup Group { get; set; } = null!;
@@ -94,6 +97,9 @@ public class PrescriptionTemplateItem
     public int? DurationValue { get; set; }
     public string? Indication { get; set; }
     public string? Route { get; set; }
+    //JJQR - END
+    //JJQR - AI (Nov 20, 2026) - Rx pad "as needed" (PRN) flag, same meaning as PrescriptionLineItem.AsNeeded
+    public bool? AsNeeded { get; set; }
     //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
 
