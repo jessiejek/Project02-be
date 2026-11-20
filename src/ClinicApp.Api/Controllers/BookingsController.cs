@@ -29,6 +29,8 @@ public record RescheduleBookingRequest(DateOnly AppointmentDate, string? Reason)
 
 public record RescheduleBookingResponse(Guid OldBookingId, Guid NewBookingId, BookingStatus OldStatus, BookingStatus NewBookingStatus);
 
+public record ClosedDateDto(DateOnly Date, string Reason);
+
 public record CreatePatientBookingRequest(DateOnly? AppointmentDate, VisitType? VisitType, string? Notes);
 
 [ApiController]
@@ -376,6 +378,28 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
     private Task<bool> HasActiveBookingOnAsync(Guid patientId, DateOnly date, Guid? exceptBookingId, CancellationToken ct) =>
         db.Bookings.AsNoTracking().AnyAsync(b => b.PatientId == patientId && b.AppointmentDate == date
             && b.BookingId != exceptBookingId && ActiveStatuses.Contains(b.Status), ct);
+    // JJQR - END
+
+    // JJQR - AI (Nov 20, 2026) - B-06 / B-29 (UI): which upcoming days can't be booked online, so the date picker can say so up front
+    /// <summary>Dates in the next <paramref name="days"/> days (default 90, max 366) that online booking refuses,
+    /// with the reason shown to the patient. Same rules as <c>POST /api/bookings/book</c>.</summary>
+    [Authorize(Roles = "Patient,Staff,Admin")]
+    [HttpGet("closed-dates")]
+    public async Task<ActionResult<List<ClosedDateDto>>> ClosedDates([FromQuery] int days = 90, CancellationToken ct = default)
+    {
+        days = Math.Clamp(days, 1, 366);
+        var doctor = await db.Doctors.AsNoTracking().OrderBy(d => d.DoctorId).FirstOrDefaultAsync(ct);
+        if (doctor is null) return Ok(new List<ClosedDateDto>());
+        var result = new List<ClosedDateDto>();
+        var start = ClinicApp.Domain.ClinicClock.Today;
+        for (var i = 0; i < days; i++)
+        {
+            var date = start.AddDays(i);
+            var reason = await ClosedReasonAsync(date, doctor.DoctorId, ct);
+            if (reason is not null) result.Add(new ClosedDateDto(date, reason));
+        }
+        return Ok(result);
+    }
     // JJQR - END
 
     /// <summary>Online self-booking (§16.3 hybrid queue): a patient joins the same per-day

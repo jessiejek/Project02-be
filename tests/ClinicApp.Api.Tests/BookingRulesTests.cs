@@ -124,6 +124,29 @@ public class BookingRulesTests(ApiFixture api) : ApiTestBase(api)
     }
 
     [Fact]
+    public async Task Closed_dates_endpoint_lists_what_booking_would_refuse()
+    {
+        // far-future dates are out of the 90-day window, so use the real next blocked date
+        var doctor = await TestHelpers.BookingDoctorAsync(F);
+        var d = ClinicApp.Domain.ClinicClock.Today.AddDays(10);
+        var blockId = Guid.NewGuid();
+        await WithDb(async db => { db.DoctorBlockedDates.Add(new DoctorBlockedDate { Id = blockId, DoctorId = doctor, BlockedDate = d, Reason = "x", CreatedAt = DateTimeOffset.UtcNow }); await db.SaveChangesAsync(); return 0; });
+        try
+        {
+            using var c = await NewPatientClient();
+            var rows = await ListOf(await c.GetAsync("/api/bookings/closed-dates?days=30"));
+            Assert.Contains(rows, r => r.GetProperty("date").GetString() == d.ToString("yyyy-MM-dd"));
+            await ShouldBe(HttpStatusCode.BadRequest, await Book(c, d));
+        }
+        finally
+        {
+            await WithDb(async db => { db.DoctorBlockedDates.Remove(await db.DoctorBlockedDates.SingleAsync(x => x.Id == blockId)); await db.SaveChangesAsync(); return 0; });
+        }
+        using var anon = F.Anonymous();
+        await ShouldBe(HttpStatusCode.Unauthorized, await anon.GetAsync("/api/bookings/closed-dates"));
+    }
+
+    [Fact]
     public async Task Open_days_still_book_fine()
     {
         using var c = await NewPatientClient();
