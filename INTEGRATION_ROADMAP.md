@@ -70,7 +70,7 @@ the FE gains the API client but behaviour is unchanged.
 
 ### Backend
 - [ ] `appsettings.Development.json` → Docker connection string
-      (`Server=localhost,1433;Database=ClinicAppDb;User Id=sa;Password=Clinic_Dev_Pass123;TrustServerCertificate=True`);
+      (`Server=localhost,1433;Database=ClinicAppDb;User Id=sa;Password=<SQL_SA_PASSWORD from .env>;TrustServerCertificate=True`);
       keep the Windows `PHL8DPROG004\SQLEXPRESS` string only in `appsettings.json`.
 - [ ] `docker compose up -d` → `dotnet ef database update` → confirm all tables +
       the 4 views + seed rows (`clinic_settings`, operating hours, payment methods,
