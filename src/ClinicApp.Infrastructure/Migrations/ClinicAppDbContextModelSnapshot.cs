@@ -1109,40 +1109,32 @@ namespace ClinicApp.Infrastructure.Migrations
 
                     b.Property<string>("Description")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)")
                         .HasColumnName("description");
+
+                    b.Property<bool>("IsLeaf")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_leaf");
+
+                    b.Property<int>("Level")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("level");
 
                     b.HasKey("Code")
                         .HasName("pk_icd10_codes");
 
-                    b.ToTable("icd10_codes", (string)null);
+                    b.HasIndex("Description")
+                        .HasDatabaseName("ix_icd10_codes_description");
 
-                    b.HasData(
-                        new
-                        {
-                            Code = "Z00.0",
-                            Description = "General health examination"
-                        },
-                        new
-                        {
-                            Code = "I10",
-                            Description = "Essential (primary) hypertension"
-                        },
-                        new
-                        {
-                            Code = "J06.9",
-                            Description = "Acute upper respiratory infection, unspecified"
-                        },
-                        new
-                        {
-                            Code = "E11.9",
-                            Description = "Type 2 diabetes mellitus without complications"
-                        },
-                        new
-                        {
-                            Code = "J45.909",
-                            Description = "Unspecified asthma, uncomplicated"
-                        });
+                    b.HasIndex("IsLeaf")
+                        .HasDatabaseName("ix_icd10_codes_is_leaf");
+
+                    b.ToTable("icd10_codes", (string)null);
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.LabOrder", b =>

@@ -410,7 +410,8 @@ public static class DevDataSeeder
                 "Essential (primary) hypertension; blood pressure at goal on current regimen."),
             (G("d1111111-1111-4111-8111-111111111103"), "E11.9 — Type 2 DM",
                 "Type 2 diabetes mellitus without complications; glycemic control per recent labs."),
-            (G("d1111111-1111-4111-8111-111111111104"), "A09 — Infectious gastroenteritis",
+            //JJQR - AI (Nov 20, 2026) B2 — A09 (US unspecified) -> WHO A09.0
+            (G("d1111111-1111-4111-8111-111111111104"), "A09.0 — Other and unspecified gastroenteritis and colitis of infectious origin",
                 "Acute infectious gastroenteritis, presumed viral; mild dehydration."),
             (G("d1111111-1111-4111-8111-111111111105"), "N39.0 — UTI",
                 "Urinary tract infection, site not specified; uncomplicated cystitis."),
@@ -499,36 +500,7 @@ public static class DevDataSeeder
             "DevDataSeeder: clinical templates — medicines {Medicines}, rx templates {RxTemplates}, rx items {RxItems}, medical certs {Mc}, diagnoses {Dx}, SOAP phrases {Phrases}.",
             medicinesCreated, rxTemplatesCreated, rxItemsCreated, mcCreated, dxCreated, phrasesCreated);
 
-        var icd10Defs = new (string Code, string Description)[]
-        {
-            ("Z34.0", "Supervision of normal first pregnancy"),
-            ("Z34.8", "Supervision of other normal pregnancy"),
-            ("Z34.9", "Supervision of normal pregnancy, unspecified"),
-            ("Z39.2", "Encounter for routine postpartum follow-up"),
-            ("O80", "Encounter for full-term uncomplicated delivery"),
-            ("O82", "Encounter for cesarean delivery without indication"),
-            ("O13.9", "Gestational hypertension without significant proteinuria, unspecified trimester"),
-            ("O14.90", "Unspecified pre-eclampsia, unspecified trimester"),
-            ("O24.419", "Gestational diabetes mellitus in pregnancy, unspecified control"),
-            ("O99.210", "Obesity complicating pregnancy, unspecified trimester"),
-            ("J02.9", "Acute pharyngitis, unspecified"),
-            ("A09", "Infectious gastroenteritis and colitis, unspecified"),
-            ("N39.0", "Urinary tract infection, site not specified"),
-            ("R50.9", "Fever, unspecified"),
-            ("J06.9", "Acute upper respiratory infection, unspecified"),
-            ("J21.9", "Acute bronchiolitis, unspecified"),
-            ("A90", "Dengue fever [classical dengue]"),
-            ("J45.909", "Unspecified asthma, uncomplicated"),
-            ("Z00.129", "Encounter for routine child health examination without abnormal findings"),
-        };
-
-        var icd10Created = 0;
-        foreach (var (code, description) in icd10Defs)
-        {
-            if (await db.Icd10Codes.AnyAsync(c => c.Code == code, ct)) continue;
-            db.Icd10Codes.Add(new Icd10Code { Code = code, Description = description });
-            icd10Created++;
-        }
+        //JJQR - AI (Nov 20, 2026) B1 — ICD-10 catalog is owned by Icd10Seeder (WHO ICD-10 2019); do not hand-type codes here.
 
         var vitalDefs = new (Guid TemplateId, string FormKey, string Description, string Unit, string Icon)[]
         {
@@ -555,12 +527,12 @@ public static class DevDataSeeder
             vitalsCreated++;
         }
 
-        if (icd10Created + vitalsCreated > 0)
+        if (vitalsCreated > 0)
             await db.SaveChangesAsync(ct);
 
         logger.LogInformation(
-            "DevDataSeeder: lookup seeds — ICD-10 codes {Icd10}, vital field templates {Vitals}.",
-            icd10Created, vitalsCreated);
+            "DevDataSeeder: lookup seeds — vital field templates {Vitals} (ICD-10 owned by Icd10Seeder).",
+            vitalsCreated);
         //JJQR - END
 
         //JJQR - AI (Oct 31, 2026) — demo patients, bookings, labs (mirrors seed-review-fixes.sql)

@@ -112,11 +112,15 @@ public class FollowUp : IHasUpdatedAt
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-/// <summary>DDL exists; frontend does not query this table today.</summary>
+/// <summary>WHO ICD-10 2019 catalog (PhilHealth). Loaded by Icd10Seeder, not HasData.</summary>
 public class Icd10Code
 {
     public string Code { get; set; } = ""; // PK
     public string Description { get; set; } = "";
+    //JJQR - AI (Nov 20, 2026) B1
+    public int Level { get; set; }
+    public bool IsLeaf { get; set; } = true;
+    //JJQR - END
 }
 
 //JJQR - AI (Oct 31, 2026)

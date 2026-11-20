@@ -296,6 +296,13 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         {
             e.ToTable("icd10_codes");
             e.HasKey(i => i.Code);
+            //JJQR - AI (Nov 20, 2026) B1/B3
+            e.Property(i => i.Level).HasDefaultValue(0);
+            e.Property(i => i.IsLeaf).HasDefaultValue(true);
+            e.Property(i => i.Description).HasMaxLength(450);
+            e.HasIndex(i => i.Description);
+            e.HasIndex(i => i.IsLeaf);
+            //JJQR - END
         });
 
         modelBuilder.Entity<SoapPhrase>(e => e.HasKey(p => p.Id));

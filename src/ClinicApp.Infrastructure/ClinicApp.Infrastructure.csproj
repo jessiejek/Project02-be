@@ -5,6 +5,13 @@
     <ProjectReference Include="..\ClinicApp.Auth\ClinicApp.Auth.csproj" />
   </ItemGroup>
 
+  <!-- JJQR - AI (Nov 20, 2026) B1: WHO ICD-10 2019 codes ship with the app (tests + publish) -->
+  <ItemGroup>
+    <EmbeddedResource Include="Data\Icd10Who2019\icd102019syst_codes.txt">
+      <LogicalName>ClinicApp.Infrastructure.Data.Icd10Who2019.icd102019syst_codes.txt</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
