@@ -1,3 +1,4 @@
+using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
@@ -32,7 +33,9 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
             .Include(d => d.Booking).ThenInclude(b => b!.Doctor).ThenInclude(d => d!.StaffAccount).AsQueryable();
         if (patientId is not null) q = q.Where(d => d.PatientId == patientId);
         if (bookingId is not null) q = q.Where(d => d.BookingId == bookingId);
-        return Ok(await q.OrderByDescending(d => d.UploadedAt).ToListAsync(ct));
+        var list = await q.OrderByDescending(d => d.UploadedAt).ToListAsync(ct);
+        foreach (var pid in list.Select(d => d.PatientId).Distinct().Take(20)) await AccessLog.RecordAsync(db, actor, pid, "Documents", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(list);
     }
 
     [HttpGet("patient-documents/{id:guid}/file")]
@@ -42,6 +45,7 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
         if (doc is null) return NotFound();
         var actor = await actors.ResolveAsync(User, ct);
         if (!actor.CanAccessPatient(doc.PatientId)) return NotFound(); // don't confirm the id exists
+        await AccessLog.RecordAsync(db, actor, doc.PatientId, "Document file", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return ServeFile(doc.FileUrl, doc.FileName, doc.FileContentType);
     }
 
@@ -101,7 +105,9 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
             .Include(r => r.Booking).ThenInclude(b => b!.Doctor).ThenInclude(d => d!.StaffAccount).AsQueryable();
         if (patientId is not null) q = q.Where(r => r.PatientId == patientId);
         if (bookingId is not null) q = q.Where(r => r.BookingId == bookingId);
-        return Ok(await q.OrderByDescending(r => r.UploadedAt).ToListAsync(ct));
+        var list = await q.OrderByDescending(r => r.UploadedAt).ToListAsync(ct);
+        foreach (var pid in list.Select(r => r.PatientId).Distinct().Take(20)) await AccessLog.RecordAsync(db, actor, pid, "Lab results", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(list);
     }
 
     [HttpGet("patient-lab-results/{id:guid}/file")]
@@ -111,6 +117,7 @@ public class PatientFilesController(ClinicAppDbContext db, IFileStorageService s
         if (row is null) return NotFound();
         var actor = await actors.ResolveAsync(User, ct);
         if (!actor.CanAccessPatient(row.PatientId)) return NotFound();
+        await AccessLog.RecordAsync(db, actor, row.PatientId, "Lab result file", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return ServeFile(row.FileUrl, row.FileName, row.FileContentType);
     }
 

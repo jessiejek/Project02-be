@@ -83,7 +83,9 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
             .Include(p => p.Allergies)
             //JJQR - END
             .SingleOrDefaultAsync(p => p.PatientId == id, ct);
-        return patient is null ? NotFound() : Ok(patient);
+        if (patient is null) return NotFound();
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Patient record", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(patient);
     }
 
     /// <summary>Create a patient record (guest / staff quick-register). No auth
@@ -140,8 +142,11 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
 
     [HttpGet("{id:guid}/vaccinations")]
     [Authorize(Roles = "Admin,Staff,Doctor")]
-    public async Task<ActionResult<List<PatientVaccination>>> GetVaccinations(Guid id, CancellationToken ct) =>
-        Ok(await db.PatientVaccinations.AsNoTracking().Where(v => v.PatientId == id).OrderByDescending(v => v.AdministeredDate).ToListAsync(ct));
+    public async Task<ActionResult<List<PatientVaccination>>> GetVaccinations(Guid id, CancellationToken ct)
+    {
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Vaccinations", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
+        return Ok(await db.PatientVaccinations.AsNoTracking().Where(v => v.PatientId == id).OrderByDescending(v => v.AdministeredDate).ToListAsync(ct));
+    }
 
     //JJQR - AI (Oct 31, 2026)
     [HttpGet("{id:guid}/allergies")]
@@ -149,6 +154,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     public async Task<ActionResult<List<PatientAllergy>>> GetAllergies(Guid id, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Allergies", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return Ok(await db.PatientAllergies.AsNoTracking()
             .Where(a => a.PatientId == id)
             .OrderBy(a => a.Allergen)
@@ -204,6 +210,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     public async Task<ActionResult<List<PatientLabValue>>> GetLabValues(Guid id, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Lab values", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return Ok(await db.PatientLabValues.AsNoTracking()
             .Where(v => v.PatientId == id)
             .OrderByDescending(v => v.ObservedAt)

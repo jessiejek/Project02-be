@@ -33,6 +33,9 @@ public class AuditLogsController(ClinicAppDbContext db, ActorResolver actors) : 
 
         var q = db.AuditLogs.AsNoTracking().AsQueryable();
         if (entityType is not null) q = q.Where(a => a.EntityType == entityType);
+        // JJQR - AI (Nov 20, 2026) - PV-5: the change log does not fill up with "who looked" / sign-in rows unless they are asked for by type
+        else q = q.Where(a => a.EntityType != AuditEntityType.Access && a.EntityType != AuditEntityType.Auth);
+        // JJQR - END
         if (entityId is not null) q = q.Where(a => a.EntityId == entityId);
         return Ok(await q.OrderByDescending(a => a.PerformedAt).Take(take).ToListAsync(ct));
     }
@@ -53,6 +56,9 @@ public class AuditLogsController(ClinicAppDbContext db, ActorResolver actors) : 
 
         var query = db.AuditLogs.AsNoTracking().AsQueryable();
         if (entityType is not null) query = query.Where(a => a.EntityType == entityType);
+        // JJQR - AI (Nov 20, 2026) - PV-5: same default as above
+        else query = query.Where(a => a.EntityType != AuditEntityType.Access && a.EntityType != AuditEntityType.Auth);
+        // JJQR - END
         if (!string.IsNullOrWhiteSpace(q))
         {
             var s = q.Trim();
@@ -64,6 +70,27 @@ public class AuditLogsController(ClinicAppDbContext db, ActorResolver actors) : 
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         return Ok(new PagedResult<AuditLog> { Items = items, TotalCount = total, Page = page, PageSize = pageSize });
     }
+
+    // JJQR - AI (Nov 20, 2026) - PV-5: admin view "who looked at this patient"
+    public record AccessEntry(DateTimeOffset At, string Who, string Role, string Area);
+
+    [Authorize(Roles = "Admin")]
+    [HttpGet("patient/{patientId:guid}/access")]
+    public async Task<ActionResult<List<AccessEntry>>> PatientAccess(Guid patientId, [FromQuery] int take = 200, CancellationToken ct = default)
+    {
+        take = Math.Clamp(take, 1, 500);
+        var rows = await db.AuditLogs.AsNoTracking()
+            .Where(a => a.EntityType == AuditEntityType.Access && a.EntityId == patientId)
+            .OrderByDescending(a => a.PerformedAt).Take(take).ToListAsync(ct);
+        var ids = rows.Select(r => r.PerformedByUserId).Where(i => i != null).Select(i => i!.Value).Distinct().ToList();
+        var staff = await db.StaffAccounts.AsNoTracking().Where(s => ids.Contains(s.UserId)).ToDictionaryAsync(s => s.UserId, ct);
+        return Ok(rows.Select(r =>
+        {
+            var s = r.PerformedByUserId is { } u && staff.TryGetValue(u, out var st) ? st : null;
+            return new AccessEntry(r.PerformedAt, s?.FullName ?? "Unknown user", s?.Role.ToString() ?? "", r.Details ?? "");
+        }).ToList());
+    }
+    // JJQR - END
 
     /// <summary>Client-invented audit rows are no longer accepted. Controllers write
     /// audit via <c>AuditLogWriter</c> on real mutations. Kept as 410 so old FE callers fail closed.</summary>
