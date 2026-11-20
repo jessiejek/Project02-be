@@ -29,6 +29,11 @@ public static class DevDataSeeder
 {
     public const string DevPassword = "ClinicDev123!";
 
+    // JJQR - AI (Nov 20, 2026) - B-32
+    public const string SpareStaffEmail = "spare-staff@clinic.test";
+    private static readonly Guid SpareStaffId = Guid.Parse("c2d6b0a4-7f0e-4c1e-9a55-3b8f0d1e7a42");
+    // JJQR - END
+
     private static readonly (Guid Id, string Email, UserRole Role)[] Accounts =
     [
         (Guid.Parse("409a0fd7-c371-4c4c-89b3-31f9d3b18366"), "admin@clinic.test",       UserRole.Admin),
@@ -40,11 +45,6 @@ public static class DevDataSeeder
         (SpareStaffId,                                       SpareStaffEmail,           UserRole.Staff),
         // JJQR - END
     ];
-
-    // JJQR - AI (Nov 20, 2026) - B-32
-    public const string SpareStaffEmail = "spare-staff@clinic.test";
-    private static readonly Guid SpareStaffId = Guid.Parse("c2d6b0a4-7f0e-4c1e-9a55-3b8f0d1e7a42");
-    // JJQR - END
 
     public static async Task SeedAsync(ClinicAppDbContext db, PasswordHasherService hasher, ILogger logger, CancellationToken ct = default)
     {
