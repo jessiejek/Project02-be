@@ -112,11 +112,15 @@ public class FollowUp : IHasUpdatedAt
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-/// <summary>DDL exists; frontend does not query this table today.</summary>
+/// <summary>WHO ICD-10 2019 catalog (PhilHealth). Loaded by Icd10Seeder, not HasData.</summary>
 public class Icd10Code
 {
     public string Code { get; set; } = ""; // PK
     public string Description { get; set; } = "";
+    //JJQR - AI (Nov 20, 2026) B1
+    public int Level { get; set; }
+    public bool IsLeaf { get; set; } = true;
+    //JJQR - END
 }
 
 //JJQR - AI (Oct 31, 2026)
@@ -143,6 +147,9 @@ public class SoapPhrase : IHasUpdatedAt
     //JJQR - AI (Nov 19, 2026) - templates revamp: doctor-chosen order within a field (0 = never reordered; ties fall back to label)
     public int SortOrder { get; set; }
     //JJQR - END
+    //JJQR - AI (Nov 20, 2026) A2
+    public string? SourceBuiltinKey { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
@@ -158,6 +165,9 @@ public class SoapTemplate : IHasUpdatedAt
     public string? Objective { get; set; }
     public string? Assessment { get; set; }
     public string? Plan { get; set; }
+    //JJQR - AI (Nov 20, 2026) A2
+    public string? SourceBuiltinKey { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
@@ -175,6 +185,9 @@ public class MedicalCertificateTemplate : IHasUpdatedAt
     public string? DiagnosisText { get; set; }
     public string? Recommendations { get; set; }
     public string? PurposeException { get; set; }
+    //JJQR - AI (Nov 20, 2026) A2
+    public string? SourceBuiltinKey { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
@@ -191,6 +204,20 @@ public class DoctorDiagnosisTemplate : IHasUpdatedAt
     //JJQR - AI (Nov 19, 2026) - templates revamp: optional ICD-10 code (no FK; icd10_codes.code is a string key)
     public string? Icd10Code { get; set; }
     //JJQR - END
+    //JJQR - AI (Nov 20, 2026) A2
+    public string? SourceBuiltinKey { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
+
+//JJQR - AI (Nov 20, 2026) A2 — one row per (doctor, kind, builtin) once a built-in has been copied or adopted; kept after she deletes the copy so GET does not bring it back.
+public class DoctorBuiltinTemplateCopy
+{
+    public Guid Id { get; set; }
+    public Guid DoctorId { get; set; }
+    public string Kind { get; set; } = "";
+    public string BuiltinKey { get; set; } = "";
+    public DateTimeOffset CopiedAt { get; set; }
+}
+//JJQR - END

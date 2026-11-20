@@ -28,7 +28,7 @@ public record FavoriteMedicineInput(Guid MedicineId, string GenericName, string 
 [ApiController]
 [Authorize]
 [Route("api")]
-public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
+public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors, BuiltInTemplateCopier copier) : ControllerBase
 {
     // ── prescription_groups (+ line items) ──────────────────────────────────
     // §6 embed: prescription_groups(bookings(appointment_date, doctors(staff_accounts(full_name)))).
@@ -150,6 +150,12 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         var q = db.PrescriptionTemplates.AsNoTracking().Include(t => t.Items).AsQueryable();
         //JJQR - AI (Nov 19, 2026) - Staff must never read a doctor's private Rx sets: system sets only
         if (actor.IsStaff) q = q.Where(t => t.IsSystemTemplate);
+        //JJQR - AI (Nov 20, 2026) A2 — doctor / admin-acting-for-her: copies then only her own non-system rows
+        else if (doctorId is not null && actor.ActsAsDoctor(doctorId.Value))
+        {
+            await copier.EnsureCopiesAsync(doctorId.Value, BuiltInTemplateKind.Rx, ct);
+            q = q.Where(t => t.DoctorId == doctorId && !t.IsSystemTemplate);
+        }
         else if (doctorId is not null) q = q.Where(t => t.DoctorId == doctorId || t.IsSystemTemplate);
         //JJQR - END
         return Ok(await q.OrderBy(t => t.Title).ToListAsync(ct));

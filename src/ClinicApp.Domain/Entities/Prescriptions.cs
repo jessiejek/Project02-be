@@ -73,6 +73,9 @@ public class PrescriptionTemplate : IHasUpdatedAt
     public Guid DoctorId { get; set; }
     public string Title { get; set; } = "";
     public bool IsSystemTemplate { get; set; }
+    //JJQR - AI (Nov 20, 2026) A2
+    public string? SourceBuiltinKey { get; set; }
+    //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 

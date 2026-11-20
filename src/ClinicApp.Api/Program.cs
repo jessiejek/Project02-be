@@ -128,6 +128,7 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<ClinicApp.Api.Security.ActorResolver>();
+builder.Services.AddScoped<BuiltInTemplateCopier>(); //JJQR - AI (Nov 20, 2026) A2
 builder.Services.AddSingleton<IPatientCodeAllocator, PatientCodeAllocator>();
 builder.Services.AddSignalR();
 
@@ -205,6 +206,15 @@ if (isSqlite)
     db.Database.EnsureCreated();
     ClinicApp.Infrastructure.SqliteDemoViews.CreateViews(db);
 }
+
+//JJQR - AI (Nov 20, 2026) B1 — WHO ICD-10 catalog in every environment (after EnsureCreated / migrations, before DevDataSeeder)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ClinicAppDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Icd10Seeder");
+    await ClinicApp.Infrastructure.Icd10Seeder.SeedAsync(db, logger);
+}
+//JJQR - END
 
 // ── Dev login accounts (INTEGRATION_ROADMAP.md Phase 1 — auth cutover) ─────
 // Development only. Seeds the account-list.txt users so the frontend can log in

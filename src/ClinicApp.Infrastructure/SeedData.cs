@@ -47,13 +47,7 @@ internal static class SeedData
             new ClinicAcceptedPaymentMethod { PaymentMethod = PaymentMethod.BankTransfer }
         );
 
-        modelBuilder.Entity<Icd10Code>().HasData(
-            new Icd10Code { Code = "Z00.0", Description = "General health examination" },
-            new Icd10Code { Code = "I10", Description = "Essential (primary) hypertension" },
-            new Icd10Code { Code = "J06.9", Description = "Acute upper respiratory infection, unspecified" },
-            new Icd10Code { Code = "E11.9", Description = "Type 2 diabetes mellitus without complications" },
-            new Icd10Code { Code = "J45.909", Description = "Unspecified asthma, uncomplicated" }
-        );
+        //JJQR - AI (Nov 20, 2026) B1 — ICD-10 catalog is owned by Icd10Seeder (WHO ICD-10 2019), not HasData.
 
         modelBuilder.Entity<VitalFieldTemplate>().HasData(
             new VitalFieldTemplate { TemplateId = Guid.Parse("11111111-0000-0000-0000-000000000001"), Description = "TEMPERATURE", FormKey = "temperature", Unit = "°C", Icon = "thermometer", IsDefault = true, CreatedAt = SeedTimestamp },

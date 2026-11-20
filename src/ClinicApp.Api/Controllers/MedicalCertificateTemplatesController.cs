@@ -16,7 +16,7 @@ public record MedicalCertificateTemplateInput(
 [ApiController]
 [Authorize(Roles = "Doctor,Admin")]
 [Route("api/medical-certificate-templates")]
-public class MedicalCertificateTemplatesController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
+public class MedicalCertificateTemplatesController(ClinicAppDbContext db, ActorResolver actors, BuiltInTemplateCopier copier) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<MedicalCertificateTemplate>>> GetAll([FromQuery] Guid? doctorId, CancellationToken ct)
@@ -27,6 +27,16 @@ public class MedicalCertificateTemplatesController(ClinicAppDbContext db, ActorR
             if (doctorId is not null && !actor.ActsAsDoctor(doctorId.Value)) return Forbid();
             doctorId = actor.StaffId;
         }
+
+        //JJQR - AI (Nov 20, 2026) A2
+        if (doctorId is not null && actor.ActsAsDoctor(doctorId.Value))
+        {
+            await copier.EnsureCopiesAsync(doctorId.Value, BuiltInTemplateKind.Cert, ct);
+            return Ok(await db.MedicalCertificateTemplates.AsNoTracking()
+                .Where(t => t.DoctorId == doctorId && !t.IsSystemTemplate)
+                .OrderBy(t => t.Title).ToListAsync(ct));
+        }
+        //JJQR - END
 
         var q = db.MedicalCertificateTemplates.AsNoTracking().AsQueryable();
         if (doctorId is not null) q = q.Where(t => t.DoctorId == doctorId || t.IsSystemTemplate);

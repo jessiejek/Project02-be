@@ -111,7 +111,7 @@ public static class DevDataSeeder
                 db.Doctors.Add(new Doctor
                 {
                     DoctorId = userId,
-                    Specialization = "General Medicine",
+                    Specialization = "Family Medicine",
                     ConsultationFee = 500,
                     SlotDurationMinutes = 30,
                     SlotCapacity = 1,
@@ -121,6 +121,21 @@ public static class DevDataSeeder
             }
             await db.SaveChangesAsync(ct);
             logger.LogInformation("DevDataSeeder: database had no doctors - seeded {Count} demo doctor row(s).", doctorAccounts.Length);
+        }
+        //JJQR - END
+
+        //JJQR - AI (Nov 20, 2026) A3 — demo doctor logins that still say "General Medicine" become Family Medicine (imported/custom specialties are left alone)
+        {
+            var demoStaffIds = await (
+                from sa in db.StaffAccounts
+                join u in db.Users on sa.UserId equals u.Id
+                where u.Email == "doctor@clinic.test" || u.Email == "phase5doctor@clinic.test"
+                select sa.StaffId).ToListAsync(ct);
+            var demoDocs = await db.Doctors.Where(d => demoStaffIds.Contains(d.DoctorId) && d.Specialization == "General Medicine").ToListAsync(ct);
+            foreach (var d in demoDocs)
+                d.Specialization = "Family Medicine";
+            if (demoDocs.Count > 0)
+                await db.SaveChangesAsync(ct);
         }
         //JJQR - END
 
@@ -234,15 +249,6 @@ public static class DevDataSeeder
         //JJQR - END
 
         //JJQR - AI (Oct 31, 2026)
-        static Guid DerivePerDoctorId(Guid baseId, Guid doctorId)
-        {
-            var b = baseId.ToByteArray();
-            var d = doctorId.ToByteArray();
-            for (var i = 0; i < 16; i++)
-                b[i] = (byte)(b[i] ^ d[i]);
-            return new Guid(b);
-        }
-
         static Guid G(string s) => Guid.Parse(s);
 
         var ownerDoctorId = await db.Doctors.Select(d => d.DoctorId).FirstOrDefaultAsync(ct);
@@ -407,95 +413,18 @@ public static class DevDataSeeder
             mcCreated++;
         }
 
-        var diagnosisDefs = new (Guid BaseId, string Label, string Body)[]
+        //JJQR - AI (Nov 20, 2026) A2 — diagnoses/phrases come from BuiltInTemplateCatalog via the same copier GET uses (adopts existing same-title rows)
+        var dxBefore = await db.DoctorDiagnosisTemplates.CountAsync(ct);
+        var phrasesBefore = await db.SoapPhrases.CountAsync(ct);
+        var copier = new BuiltInTemplateCopier(db);
+        foreach (var docId in doctorIds)
         {
-            (G("d1111111-1111-4111-8111-111111111101"), "J06.9 — Acute URI",
-                "Acute upper respiratory infection, likely viral; no signs of lower tract involvement."),
-            (G("d1111111-1111-4111-8111-111111111102"), "I10 — Essential hypertension",
-                "Essential (primary) hypertension; blood pressure at goal on current regimen."),
-            (G("d1111111-1111-4111-8111-111111111103"), "E11.9 — Type 2 DM",
-                "Type 2 diabetes mellitus without complications; glycemic control per recent labs."),
-            (G("d1111111-1111-4111-8111-111111111104"), "A09 — Infectious gastroenteritis",
-                "Acute infectious gastroenteritis, presumed viral; mild dehydration."),
-            (G("d1111111-1111-4111-8111-111111111105"), "N39.0 — UTI",
-                "Urinary tract infection, site not specified; uncomplicated cystitis."),
-            (G("d1111111-1111-4111-8111-111111111106"), "Z00.0 — General adult exam",
-                "General adult medical examination without abnormal findings."),
-            (G("d1111111-1111-4111-8111-111111111107"), "R50.9 — Fever",
-                "Fever, unspecified; no clear focus on initial evaluation."),
-            (G("d1111111-1111-4111-8111-111111111108"), "Z34.9 — Supervision of pregnancy",
-                "Supervision of normal pregnancy; routine prenatal care."),
-            (G("d1111111-1111-4111-8111-111111111109"), "J02.9 — Acute pharyngitis",
-                "Acute pharyngitis, unspecified; likely viral etiology."),
-            (G("d1111111-1111-4111-8111-111111111110"), "K21.9 — GERD",
-                "Gastro-esophageal reflux disease without esophagitis; symptoms controlled."),
-        };
-
-        var dxCreated = 0;
-        for (var di = 0; di < doctorIds.Count; di++)
-        {
-            var docId = doctorIds[di];
-            foreach (var (baseId, label, body) in diagnosisDefs)
-            {
-                var id = di == 0 ? baseId : DerivePerDoctorId(baseId, docId);
-                if (await db.DoctorDiagnosisTemplates.AnyAsync(t => t.Id == id, ct)) continue;
-                if (await db.DoctorDiagnosisTemplates.AnyAsync(t => t.DoctorId == docId && t.Label == label, ct)) continue;
-
-                db.DoctorDiagnosisTemplates.Add(new DoctorDiagnosisTemplate
-                {
-                    Id = id,
-                    DoctorId = docId,
-                    Label = label,
-                    Body = body,
-                    CreatedAt = now,
-                    UpdatedAt = now,
-                });
-                dxCreated++;
-            }
+            await copier.EnsureCopiesAsync(docId, BuiltInTemplateKind.Diagnosis, ct);
+            await copier.EnsureCopiesAsync(docId, BuiltInTemplateKind.Phrase, ct);
         }
-
-        var phraseDefs = new (Guid BaseId, SoapField Field, string Label, string Body)[]
-        {
-            (G("e1111111-1111-4111-8111-111111111101"), SoapField.ChiefComplaint, "Cough and colds", "Cough, runny nose, and sore throat for several days."),
-            (G("e1111111-1111-4111-8111-111111111102"), SoapField.ChiefComplaint, "Fever", "Intermittent fever with body malaise for 2 days."),
-            (G("e1111111-1111-4111-8111-111111111103"), SoapField.Subjective, "Denies red flags", "Denies dyspnea, chest pain, hemoptysis, or altered sensorium."),
-            (G("e1111111-1111-4111-8111-111111111104"), SoapField.Subjective, "No sick contacts", "No known sick contacts; no recent travel."),
-            (G("e1111111-1111-4111-8111-111111111105"), SoapField.Subjective, "Symptom onset", "Symptoms began gradually about 3 days ago."),
-            (G("e1111111-1111-4111-8111-111111111106"), SoapField.Subjective, "Hydration OK", "Able to eat and drink; urine output normal."),
-            (G("e1111111-1111-4111-8111-111111111107"), SoapField.Objective, "Lungs clear", "Lungs clear to auscultation bilaterally; no wheezes or crackles."),
-            (G("e1111111-1111-4111-8111-111111111108"), SoapField.Objective, "Throat exam", "Oropharynx mildly erythematous; no tonsillar exudates."),
-            (G("e1111111-1111-4111-8111-111111111109"), SoapField.Objective, "Stable vitals", "Alert, not in distress; vital signs stable for age."),
-            (G("e1111111-1111-4111-8111-111111111110"), SoapField.Objective, "No lymphadenopathy", "No significant cervical lymphadenopathy."),
-            (G("e1111111-1111-4111-8111-111111111111"), SoapField.Assessment, "Viral URI", "Viral upper respiratory infection, likely self-limited."),
-            (G("e1111111-1111-4111-8111-111111111112"), SoapField.Assessment, "HTN controlled", "Essential hypertension, controlled on current therapy."),
-            (G("e1111111-1111-4111-8111-111111111113"), SoapField.Plan, "Symptomatic care", "Symptomatic care: fluids, rest, paracetamol PRN."),
-            (G("e1111111-1111-4111-8111-111111111114"), SoapField.Plan, "Return precautions", "Return if fever persists >3 days, worsening breathlessness, or new red flags."),
-            (G("e1111111-1111-4111-8111-111111111115"), SoapField.Plan, "Continue meds", "Continue present medications; routine follow-up as scheduled."),
-        };
-
-        var phrasesCreated = 0;
-        for (var di = 0; di < doctorIds.Count; di++)
-        {
-            var docId = doctorIds[di];
-            foreach (var (baseId, field, label, body) in phraseDefs)
-            {
-                var id = di == 0 ? baseId : DerivePerDoctorId(baseId, docId);
-                if (await db.SoapPhrases.AnyAsync(p => p.Id == id, ct)) continue;
-                if (await db.SoapPhrases.AnyAsync(p => p.DoctorId == docId && p.Field == field && p.Label == label, ct)) continue;
-
-                db.SoapPhrases.Add(new SoapPhrase
-                {
-                    Id = id,
-                    DoctorId = docId,
-                    Field = field,
-                    Label = label,
-                    Body = body,
-                    CreatedAt = now,
-                    UpdatedAt = now,
-                });
-                phrasesCreated++;
-            }
-        }
+        var dxCreated = await db.DoctorDiagnosisTemplates.CountAsync(ct) - dxBefore;
+        var phrasesCreated = await db.SoapPhrases.CountAsync(ct) - phrasesBefore;
+        //JJQR - END
 
         if (medicinesCreated + rxTemplatesCreated + rxItemsCreated + mcCreated + dxCreated + phrasesCreated > 0)
             await db.SaveChangesAsync(ct);
@@ -504,36 +433,7 @@ public static class DevDataSeeder
             "DevDataSeeder: clinical templates — medicines {Medicines}, rx templates {RxTemplates}, rx items {RxItems}, medical certs {Mc}, diagnoses {Dx}, SOAP phrases {Phrases}.",
             medicinesCreated, rxTemplatesCreated, rxItemsCreated, mcCreated, dxCreated, phrasesCreated);
 
-        var icd10Defs = new (string Code, string Description)[]
-        {
-            ("Z34.0", "Supervision of normal first pregnancy"),
-            ("Z34.8", "Supervision of other normal pregnancy"),
-            ("Z34.9", "Supervision of normal pregnancy, unspecified"),
-            ("Z39.2", "Encounter for routine postpartum follow-up"),
-            ("O80", "Encounter for full-term uncomplicated delivery"),
-            ("O82", "Encounter for cesarean delivery without indication"),
-            ("O13.9", "Gestational hypertension without significant proteinuria, unspecified trimester"),
-            ("O14.90", "Unspecified pre-eclampsia, unspecified trimester"),
-            ("O24.419", "Gestational diabetes mellitus in pregnancy, unspecified control"),
-            ("O99.210", "Obesity complicating pregnancy, unspecified trimester"),
-            ("J02.9", "Acute pharyngitis, unspecified"),
-            ("A09", "Infectious gastroenteritis and colitis, unspecified"),
-            ("N39.0", "Urinary tract infection, site not specified"),
-            ("R50.9", "Fever, unspecified"),
-            ("J06.9", "Acute upper respiratory infection, unspecified"),
-            ("J21.9", "Acute bronchiolitis, unspecified"),
-            ("A90", "Dengue fever [classical dengue]"),
-            ("J45.909", "Unspecified asthma, uncomplicated"),
-            ("Z00.129", "Encounter for routine child health examination without abnormal findings"),
-        };
-
-        var icd10Created = 0;
-        foreach (var (code, description) in icd10Defs)
-        {
-            if (await db.Icd10Codes.AnyAsync(c => c.Code == code, ct)) continue;
-            db.Icd10Codes.Add(new Icd10Code { Code = code, Description = description });
-            icd10Created++;
-        }
+        //JJQR - AI (Nov 20, 2026) B1 — ICD-10 catalog is owned by Icd10Seeder (WHO ICD-10 2019); do not hand-type codes here.
 
         var vitalDefs = new (Guid TemplateId, string FormKey, string Description, string Unit, string Icon)[]
         {
@@ -560,12 +460,12 @@ public static class DevDataSeeder
             vitalsCreated++;
         }
 
-        if (icd10Created + vitalsCreated > 0)
+        if (vitalsCreated > 0)
             await db.SaveChangesAsync(ct);
 
         logger.LogInformation(
-            "DevDataSeeder: lookup seeds — ICD-10 codes {Icd10}, vital field templates {Vitals}.",
-            icd10Created, vitalsCreated);
+            "DevDataSeeder: lookup seeds — vital field templates {Vitals} (ICD-10 owned by Icd10Seeder).",
+            vitalsCreated);
         //JJQR - END
 
         //JJQR - AI (Oct 31, 2026) — demo patients, bookings, labs (mirrors seed-review-fixes.sql)
