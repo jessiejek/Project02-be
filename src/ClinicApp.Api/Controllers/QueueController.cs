@@ -40,7 +40,8 @@ public record CancelQueueEntryRequest(string? Reason);
 public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, ActorResolver actors) : ControllerBase
 {
     /// <summary>Check a walk-in patient into today's queue. Returns the printable ticket.</summary>
-    [Authorize(Roles = "Admin,Staff")]
+    //JJQR - AI (Nov 22, 2026) - the doctor portal has "New walk-in consult"; it was refused (403) because only Admin/Staff could check a patient in //JJQR - END
+    [Authorize(Roles = "Admin,Staff,Doctor")]
     [HttpPost]
     public async Task<ActionResult<object>> CheckIn(CheckInWalkInRequest req, CancellationToken ct)
     {
