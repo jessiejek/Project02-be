@@ -117,7 +117,10 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
     }
 
     //JJQR - AI (21 Nov 2026) desktop: a doctor edits their own bio only (fee, slots, limits, license/PTR/S2 stay Admin-only on PUT {id})
-    public sealed record UpdateMyBioRequest(string? Bio);
+    //JJQR - AI (Nov 22, 2026) - the doctor also keeps their own License / PTR / S2 numbers (printed on prescriptions and certificates); null = leave as is, "" = clear //JJQR - END
+    public sealed record UpdateMyBioRequest(string? Bio, string? LicenseNumber = null, string? PtrNumber = null, string? S2Number = null);
+
+    static string? Pick(string? sent, string? current) => sent is null ? current : string.IsNullOrWhiteSpace(sent) ? null : sent.Trim();
 
     [Authorize(Roles = "Doctor")]
     [HttpPut("me")]
@@ -135,12 +138,13 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
         var probe = new Doctor
         {
             Specialization = doctor.Specialization, ConsultationFee = doctor.ConsultationFee, Bio = bio,
-            LicenseNumber = doctor.LicenseNumber, PtrNumber = doctor.PtrNumber, S2Number = doctor.S2Number,
+            LicenseNumber = Pick(request.LicenseNumber, doctor.LicenseNumber), PtrNumber = Pick(request.PtrNumber, doctor.PtrNumber), S2Number = Pick(request.S2Number, doctor.S2Number),
             SlotDurationMinutes = doctor.SlotDurationMinutes, SlotCapacity = doctor.SlotCapacity, DailyPatientLimit = doctor.DailyPatientLimit,
         };
         if (Rules.Doctor(probe).Result() is { } invalid) return invalid;
 
         doctor.Bio = bio;
+        doctor.LicenseNumber = probe.LicenseNumber; doctor.PtrNumber = probe.PtrNumber; doctor.S2Number = probe.S2Number;
         await db.SaveChangesAsync(ct);
         return Ok(doctor);
     }
