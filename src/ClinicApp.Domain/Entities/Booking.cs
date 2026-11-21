@@ -3,8 +3,15 @@ using ClinicApp.Domain.Enums;
 
 namespace ClinicApp.Domain.Entities;
 
-public class Booking : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class Booking : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid BookingId { get; set; }
     public Guid PatientId { get; set; }
     public Guid DoctorId { get; set; }
@@ -60,8 +67,15 @@ public class BookingService
 }
 
 /// <summary>1:1 with Booking.</summary>
-public class Payment : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class Payment : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid PaymentId { get; set; }
     public Guid BookingId { get; set; }
     public decimal Amount { get; set; }
@@ -92,6 +106,9 @@ public class Payment : IHasUpdatedAt
 public class QueueCounter
 {
     public DateOnly Date { get; set; }
+    //JJQR - AI (Nov 21, 2026) - 'R' regular / 'S' senior-PWD; each lane has its own sequence per day
+    public string Lane { get; set; } = "R";
+    //JJQR - END
     public int Value { get; set; }
 }
 

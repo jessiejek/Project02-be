@@ -17,8 +17,15 @@ public class LabTestCatalog
 }
 
 /// <summary>DDL exists; consultation UI currently keeps labs local-only — build the endpoint anyway.</summary>
-public class LabOrder : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class LabOrder : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid LabOrderId { get; set; }
     public Guid ConsultationId { get; set; }
     public Guid PatientId { get; set; }
@@ -39,8 +46,15 @@ public class LabOrder : IHasUpdatedAt
 }
 
 /// <summary>Reads exist; consultation write path is still local-only in FE — endpoint kept for future use.</summary>
-public class PatientVaccination : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class PatientVaccination : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid Id { get; set; }
     public Guid PatientId { get; set; }
     public Guid? ConsultationId { get; set; }

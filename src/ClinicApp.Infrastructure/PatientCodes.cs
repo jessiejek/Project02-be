@@ -89,6 +89,9 @@ public static class PatientCodes
             catch (DbUpdateException ex) when (attempt < attempts && IsCodeCollision(ex))
             {
                 db.ChangeTracker.Clear(); // drop the rejected rows; `stage` re-adds them next time
+                //JJQR - AI (Nov 21, 2026) cloud sync: sync change-log rows lengthen each save, so SQLite's MAX+1 races more; jitter retries apart
+                await Task.Delay(Random.Shared.Next(5, 40), ct);
+                //JJQR - END
             }
         }
     }

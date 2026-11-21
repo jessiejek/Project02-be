@@ -161,6 +161,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("action");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<string>("Details")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("details");
@@ -174,6 +178,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("entity_type");
 
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
                     b.Property<DateTimeOffset>("PerformedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("performed_at");
@@ -181,6 +189,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<Guid?>("PerformedByUserId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("performed_by_user_id");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.HasKey("Id")
                         .HasName("pk_audit_logs");
@@ -223,6 +235,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by_user_id");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<decimal>("DiscountAmount")
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("discount_amount");
@@ -246,6 +262,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Notes")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("notes");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
 
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uniqueidentifier")
@@ -271,6 +291,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("QueueNumber")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("queue_number");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<TimeOnly>("SlotEndTime")
                         .HasColumnType("time")
@@ -590,6 +614,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<Guid>("DoctorId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("doctor_id");
@@ -601,6 +629,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Objective")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("objective");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
 
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uniqueidentifier")
@@ -621,6 +653,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Plan")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("plan");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -667,9 +703,21 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("custom_description");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<string>("Icd10Code")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("icd10code");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -1098,6 +1146,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<Guid>("DoctorId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("doctor_id");
@@ -1110,6 +1162,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("instructions");
 
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("patient_id");
@@ -1121,6 +1177,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<bool>("ReminderEnabled")
                         .HasColumnType("bit")
                         .HasColumnName("reminder_enabled");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1198,6 +1258,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<Guid>("DoctorId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("doctor_id");
@@ -1209,6 +1273,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Notes")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("notes");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
 
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uniqueidentifier")
@@ -1225,6 +1293,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("ResultAttachmentUrl")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("result_attachment_url");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<string>("SpecimenType")
                         .HasColumnType("nvarchar(max)")
@@ -1416,6 +1488,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<string>("DiagnosisText")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("diagnosis_text");
@@ -1444,6 +1520,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("issued_by_user_id");
 
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
                     b.Property<string>("PatientAddressSnapshot")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("patient_address_snapshot");
@@ -1459,6 +1539,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Recommendations")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("recommendations");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
@@ -1696,6 +1780,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("date")
                         .HasColumnName("date_of_birth");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
@@ -1775,6 +1863,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("middle_name");
 
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
                     b.Property<int?>("Para")
                         .HasColumnType("int")
                         .HasColumnName("para");
@@ -1795,6 +1887,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("RhFactor")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("rh_factor");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<string>("SeniorIdNumber")
                         .HasColumnType("nvarchar(max)")
@@ -2105,6 +2201,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<short?>("DoseNumber")
                         .HasColumnType("smallint")
                         .HasColumnName("dose_number");
@@ -2129,6 +2229,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("notes");
 
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("patient_id");
@@ -2140,6 +2244,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Route")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("route");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<string>("Site")
                         .HasColumnType("nvarchar(max)")
@@ -2185,6 +2293,14 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("patient_id");
@@ -2196,6 +2312,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<Guid?>("RecordedByUserId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("recorded_by_user_id");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<Guid>("TemplateId")
                         .HasColumnType("uniqueidentifier")
@@ -2255,9 +2375,18 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<string>("OrNumber")
-                        .HasColumnType("nvarchar(max)")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("or_number");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
 
                     b.Property<string>("PaymentMethod")
                         .HasColumnType("nvarchar(max)")
@@ -2282,6 +2411,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<Guid?>("RefundedByUserId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("refunded_by_user_id");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -2311,6 +2444,11 @@ namespace ClinicApp.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_payments_booking_id");
 
+                    b.HasIndex("OrNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_payments_or_number_cloud")
+                        .HasFilter("[or_number] IS NOT NULL AND [origin_node_id] IS NULL");
+
                     b.ToTable("payments", (string)null);
 
                     b.HasAnnotation("Relational:JsonPropertyName", "payments");
@@ -2331,13 +2469,25 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
                     b.Property<Guid>("DoctorId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("doctor_id");
 
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("patient_id");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
@@ -2366,6 +2516,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
 
                     b.Property<string>("Dosage")
                         .IsRequired()
@@ -2409,6 +2563,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("medicine_id");
 
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
                     b.Property<string>("Quantity")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
@@ -2417,6 +2575,10 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.Property<string>("Route")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("route");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
 
                     b.Property<string>("Timing")
                         .HasColumnType("nvarchar(max)")
@@ -2581,11 +2743,16 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("date")
                         .HasColumnName("date");
 
+                    b.Property<string>("Lane")
+                        .HasMaxLength(1)
+                        .HasColumnType("nvarchar(1)")
+                        .HasColumnName("lane");
+
                     b.Property<int>("Value")
                         .HasColumnType("int")
                         .HasColumnName("value");
 
-                    b.HasKey("Date")
+                    b.HasKey("Date", "Lane")
                         .HasName("pk_queue_counters");
 
                     b.ToTable("queue_counters", (string)null);
@@ -2846,6 +3013,200 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.ToTable("staff_accounts", (string)null);
 
                     b.HasAnnotation("Relational:JsonPropertyName", "staff_accounts");
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.SyncChange", b =>
+                {
+                    b.Property<long>("Seq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("seq");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Seq"));
+
+                    b.Property<string>("Aggregate")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("aggregate");
+
+                    b.Property<DateTimeOffset>("ChangedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("changed_at");
+
+                    b.Property<bool>("Deleted")
+                        .HasColumnType("bit")
+                        .HasColumnName("deleted");
+
+                    b.Property<string>("EntityId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("entity_id");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
+                    b.Property<long>("RowVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_version");
+
+                    b.HasKey("Seq")
+                        .HasName("pk_sync_changes");
+
+                    b.HasIndex("Aggregate", "EntityId")
+                        .HasDatabaseName("ix_sync_changes_aggregate_entity_id");
+
+                    b.ToTable("sync_changes", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.SyncFieldStamp", b =>
+                {
+                    b.Property<string>("Aggregate")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("aggregate");
+
+                    b.Property<string>("EntityId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("field");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
+                    b.Property<DateTimeOffset>("StampedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("stamped_at");
+
+                    b.HasKey("Aggregate", "EntityId", "Field")
+                        .HasName("pk_sync_field_stamps");
+
+                    b.ToTable("sync_field_stamps", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.SyncNode", b =>
+                {
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("node_id");
+
+                    b.Property<string>("AppVersion")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("app_version");
+
+                    b.Property<DateTimeOffset?>("LastSeenAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Platform")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("platform");
+
+                    b.Property<DateTimeOffset>("RegisteredAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("registered_at");
+
+                    b.Property<Guid?>("RegisteredByUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("registered_by_user_id");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("SecretHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)")
+                        .HasColumnName("secret_hash");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("NodeId")
+                        .HasName("pk_sync_nodes");
+
+                    b.ToTable("sync_nodes", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.SyncOperation", b =>
+                {
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("operation_id");
+
+                    b.Property<string>("Aggregate")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("aggregate");
+
+                    b.Property<string>("EntityId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("entity_id");
+
+                    b.Property<DateTimeOffset?>("NodeCreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("node_created_at");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("node_id");
+
+                    b.Property<string>("OperationType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasColumnName("operation_type");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("ResultJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("result_json");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("OperationId")
+                        .HasName("pk_sync_operations");
+
+                    b.HasIndex("NodeId", "ReceivedAt")
+                        .HasDatabaseName("ix_sync_operations_node_id_received_at");
+
+                    b.ToTable("sync_operations", (string)null);
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.VDailyBookingSummary", b =>

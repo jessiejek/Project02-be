@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Validation;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
@@ -113,6 +116,36 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
         return Guid.TryParse(sub, out var id) ? id : null;
     }
 
+    //JJQR - AI (21 Nov 2026) desktop: a doctor edits their own bio only (fee, slots, limits, license/PTR/S2 stay Admin-only on PUT {id})
+    public sealed record UpdateMyBioRequest(string? Bio);
+
+    [Authorize(Roles = "Doctor")]
+    [HttpPut("me")]
+    public async Task<IActionResult> UpdateMine(UpdateMyBioRequest request, CancellationToken ct)
+    {
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        var doctor = await db.Doctors.Include(d => d.StaffAccount)
+            .SingleOrDefaultAsync(d => d.StaffAccount != null && d.StaffAccount.UserId == userId, ct);
+        if (doctor is null) return NotFound();
+
+        var bio = string.IsNullOrWhiteSpace(request.Bio) ? null : request.Bio.Trim();
+        // Reuse Rules.Doctor on a copy (existing values + the new bio) so the bio limit is the same one Admin edits use.
+        var probe = new Doctor
+        {
+            Specialization = doctor.Specialization, ConsultationFee = doctor.ConsultationFee, Bio = bio,
+            LicenseNumber = doctor.LicenseNumber, PtrNumber = doctor.PtrNumber, S2Number = doctor.S2Number,
+            SlotDurationMinutes = doctor.SlotDurationMinutes, SlotCapacity = doctor.SlotCapacity, DailyPatientLimit = doctor.DailyPatientLimit,
+        };
+        if (Rules.Doctor(probe).Result() is { } invalid) return invalid;
+
+        doctor.Bio = bio;
+        await db.SaveChangesAsync(ct);
+        return Ok(doctor);
+    }
+    //JJQR - END
+
     [Authorize(Roles = "Admin")]
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, Doctor payload, CancellationToken ct)
@@ -150,7 +183,10 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
         var existing = await db.DoctorSchedules.SingleOrDefaultAsync(s => s.DoctorId == id && s.DayOfWeek == payload.DayOfWeek, ct);
         if (existing is null)
         {
-            payload.Id = Guid.NewGuid();
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            if (await ClientIds.TakenAsync<DoctorSchedule>(db, payload.Id, ct)) return ClientIds.Conflict();
+            payload.Id = ClientIds.Use(payload.Id);
+            //JJQR - END
             payload.DoctorId = id;
             payload.CreatedAt = DateTimeOffset.UtcNow;
             db.DoctorSchedules.Add(payload);
@@ -176,7 +212,10 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
     public async Task<IActionResult> AddBlockedDate(Guid id, DoctorBlockedDate payload, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).ActsAsDoctor(id)) return Forbid();
-        payload.Id = Guid.NewGuid();
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<DoctorBlockedDate>(db, payload.Id, ct)) return ClientIds.Conflict();
+        payload.Id = ClientIds.Use(payload.Id);
+        //JJQR - END
         payload.DoctorId = id;
         payload.CreatedAt = DateTimeOffset.UtcNow;
         db.DoctorBlockedDates.Add(payload);

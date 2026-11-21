@@ -100,6 +100,14 @@ builder.Services.AddAuthentication(options =>
             // token must stop working immediately, not at expiry
             OnTokenValidated = async context =>
             {
+                //JJQR - AI (Nov 21, 2026) cloud sync: node tokens are checked against sync_nodes (active, /api/sync only)
+                if (context.Principal?.IsInRole(ClinicApp.Api.Sync.SyncNodeAuth.Role) == true)
+                {
+                    var nodeFailure = await ClinicApp.Api.Sync.SyncNodeAuth.ValidateAsync(context.Principal, context.HttpContext);
+                    if (nodeFailure is not null) context.Fail(nodeFailure);
+                    return;
+                }
+                //JJQR - END
                 var sub = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
                 if (!Guid.TryParse(sub, out var uid))
                 {
@@ -113,6 +121,17 @@ builder.Services.AddAuthentication(options =>
                 }
             },
             // JJQR - END
+            //JJQR - AI (Nov 21, 2026) cloud sync: a revoked node gets 403 {"error":"node_revoked"}, not a bare 401
+            OnChallenge = async context =>
+            {
+                if (context.HttpContext.Items.ContainsKey("sync_node_revoked"))
+                {
+                    context.HandleResponse();
+                    context.Response.StatusCode = 403;
+                    await context.Response.WriteAsJsonAsync(new { error = "node_revoked" });
+                }
+            },
+            //JJQR - END
             OnMessageReceived = context =>
             {
                 var accessToken = context.Request.Query["access_token"];
@@ -127,6 +146,7 @@ builder.Services.AddAuthentication(options =>
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddSingleton<ClinicApp.Api.Sync.SyncNodeAuth>(); //JJQR - AI (Nov 21, 2026) cloud sync node tokens //JJQR - END
 builder.Services.AddScoped<ClinicApp.Api.Security.ActorResolver>();
 builder.Services.AddScoped<BuiltInTemplateCopier>(); //JJQR - AI (Nov 20, 2026) A2
 builder.Services.AddSingleton<IPatientCodeAllocator, PatientCodeAllocator>();
@@ -205,6 +225,9 @@ if (isSqlite)
     var db = scope.ServiceProvider.GetRequiredService<ClinicAppDbContext>();
     db.Database.EnsureCreated();
     ClinicApp.Infrastructure.SqliteDemoViews.CreateViews(db);
+    //JJQR - AI (Nov 21, 2026) cloud sync: add sync tables / columns to an existing SQLite file
+    ClinicApp.Infrastructure.Sync.SyncBootstrap.EnsureSqliteSyncSchema(db);
+    //JJQR - END
 }
 
 //JJQR - AI (Nov 20, 2026) B1 — WHO ICD-10 catalog in every environment (after EnsureCreated / migrations, before DevDataSeeder)
@@ -213,6 +236,39 @@ if (isSqlite)
     var db = scope.ServiceProvider.GetRequiredService<ClinicAppDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Icd10Seeder");
     await ClinicApp.Infrastructure.Icd10Seeder.SeedAsync(db, logger);
+}
+//JJQR - END
+
+//JJQR - AI (Nov 21, 2026) - the everyday medicine catalog in every environment (formulary-checked names; idempotent)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ClinicAppDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("MedicineCatalogSeeder");
+    try { await ClinicApp.Infrastructure.MedicineCatalogSeeder.SeedAsync(db, logger); }
+    catch (Exception ex) { logger.LogWarning(ex, "MedicineCatalogSeeder could not run; the medicine list is unchanged."); }
+}
+//JJQR - END
+
+//JJQR - AI (Nov 21, 2026) - self-heal: any still-unpaid payment follows the doctor's finalised fee decision (waived stays waived, the doctor's charge amount is what is collected).
+// Idempotent and logged; turn off with Billing:ReconcileOnStartup=false. A failure here never stops the API from starting.
+if (builder.Configuration.GetValue("Billing:ReconcileOnStartup", true))
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ClinicAppDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("FeeDecisionReconciler");
+        var healed = await ClinicApp.Api.Billing.FeeDecisionReconciler.ReconcileAsync(db, null, DateTimeOffset.UtcNow, CancellationToken.None);
+        if (healed.Changed)
+        {
+            await db.SaveChangesAsync();
+            logger.LogInformation("FeeDecisionReconciler: waived {Waived} payment(s) the doctor had waived, aligned {Aligned} amount(s) with the doctor's decision.", healed.Waived, healed.AmountsAligned);
+        }
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "FeeDecisionReconciler could not run at startup; payments are unchanged.");
+    }
 }
 //JJQR - END
 
@@ -227,6 +283,18 @@ if (app.Environment.IsDevelopment())
     var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DevDataSeeder");
     await ClinicApp.Infrastructure.DevDataSeeder.SeedAsync(db, hasher, logger);
 }
+
+//JJQR - AI (Nov 21, 2026) cloud sync: seed the change log once so a node's first pull gets everything
+try
+{
+    using var scope = app.Services.CreateScope();
+    await ClinicApp.Infrastructure.Sync.SyncBootstrap.BackfillAsync(scope.ServiceProvider.GetRequiredService<ClinicAppDbContext>());
+}
+catch (Exception ex)
+{
+    app.Logger.LogWarning(ex, "Sync change-log backfill skipped (run deploy/migrate-cloud-sync.sql on SQL Server first).");
+}
+//JJQR - END
 
 // §17.2 — correlation id + structured request logging, before anything that logs.
 app.UseMiddleware<RequestContextMiddleware>();

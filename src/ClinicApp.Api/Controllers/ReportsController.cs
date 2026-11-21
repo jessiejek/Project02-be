@@ -52,7 +52,9 @@ public class ReportsController(ClinicAppDbContext db, ActorResolver actors) : Co
             TotalBookings = g.Count(),
             CompletedCount = g.Count(r => r.Status == BookingStatus.Completed),
             PaidCount = g.Count(r => r.PayStatus == PaymentStatus.Paid),
-            UnpaidCount = g.Count(r => r.PayStatus == PaymentStatus.Unpaid),
+            //JJQR - AI (Nov 21, 2026) - a cancelled / no-show / expired booking owes nothing, so its leftover "Unpaid" payment row is not counted (same rule as v_daily_booking_summary)
+            UnpaidCount = g.Count(r => r.PayStatus == PaymentStatus.Unpaid && r.Status != BookingStatus.Cancelled && r.Status != BookingStatus.NoShow && r.Status != BookingStatus.Expired && r.Status != BookingStatus.Rescheduled),
+            //JJQR - END
             NoShowCount = g.Count(r => r.Status == BookingStatus.NoShow),
             Revenue = g.Where(r => r.PayStatus == PaymentStatus.Paid).Sum(r => r.Received ?? r.Amount ?? 0m)
         }).ToList());

@@ -12,8 +12,15 @@ public class Profile
     public DateTimeOffset CreatedAt { get; set; }
 }
 
-public class Patient : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class Patient : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid PatientId { get; set; }
     public Guid? UserId { get; set; }
     public string PatientCode { get; set; } = "";

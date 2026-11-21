@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
@@ -8,7 +11,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
 
-public record CreateReviewRequest(Guid BookingId, Guid DoctorId, Guid PatientId, short Rating, string? Comment);
+public record CreateReviewRequest(Guid BookingId, Guid DoctorId, Guid PatientId, short Rating, string? Comment,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? ReviewId = null
+    //JJQR - END
+    );
 
 /// <summary>reviews (contract §4). One per booking.</summary>
 [ApiController]
@@ -62,9 +69,15 @@ public class ReviewsController(ClinicAppDbContext db, ActorResolver actors) : Co
         if (await db.Reviews.AnyAsync(r => r.BookingId == req.BookingId, ct))
             return Conflict(new { message = "This visit has already been reviewed." });
 
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<Review>(db, req.ReviewId, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var row = new Review
         {
-            ReviewId = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            ReviewId = ClientIds.Use(req.ReviewId),
+            //JJQR - END
+
             BookingId = booking.BookingId,
             DoctorId = booking.DoctorId,
             PatientId = booking.PatientId,

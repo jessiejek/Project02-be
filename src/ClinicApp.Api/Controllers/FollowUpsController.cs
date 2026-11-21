@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
@@ -10,7 +13,11 @@ namespace ClinicApp.Api.Controllers;
 
 public record UpsertFollowUpRequest(
     Guid PatientId, Guid DoctorId, DateOnly FollowUpDate,
-    string? Reason, string? Instructions, bool ReminderEnabled, FollowUpStatus Status);
+    string? Reason, string? Instructions, bool ReminderEnabled, FollowUpStatus Status,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 
 /// <summary>follow_ups (contract §4). Upsert conflict key is consultation_id (unique).</summary>
 [ApiController]
@@ -67,7 +74,10 @@ public class FollowUpsController(ClinicAppDbContext db, ActorResolver actors) : 
         var f = await db.FollowUps.SingleOrDefaultAsync(x => x.ConsultationId == consultationId, ct);
         if (f is null)
         {
-            f = new FollowUp { Id = Guid.NewGuid(), ConsultationId = consultationId, CreatedAt = now };
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            if (await ClientIds.TakenAsync<FollowUp>(db, req.Id, ct)) return ClientIds.Conflict();
+            f = new FollowUp { Id = ClientIds.Use(req.Id), ConsultationId = consultationId, CreatedAt = now };
+            //JJQR - END
             db.FollowUps.Add(f);
         }
         f.PatientId = req.PatientId;

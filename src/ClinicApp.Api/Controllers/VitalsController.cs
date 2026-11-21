@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Validation;
 using ClinicApp.Api.Security;
@@ -9,7 +12,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
 
-public record VitalReadingInput(Guid TemplateId, string Value);
+public record VitalReadingInput(Guid TemplateId, string Value,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 
 /// <summary>patient_vital_readings (contract §4). Upsert conflict key is
 /// (booking_id, template_id). Contract §16.1: vitals are a shared capability —
@@ -72,7 +79,9 @@ public class VitalsController(ClinicAppDbContext db, ActorResolver actors) : Con
             {
                 db.PatientVitalReadings.Add(new PatientVitalReading
                 {
-                    Id = Guid.NewGuid(),
+                    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+                    Id = await ClientIds.FreshAsync<PatientVitalReading>(db, input.Id, ct),
+                    //JJQR - END
                     BookingId = bookingId,
                     PatientId = booking.PatientId,
                     TemplateId = input.TemplateId,

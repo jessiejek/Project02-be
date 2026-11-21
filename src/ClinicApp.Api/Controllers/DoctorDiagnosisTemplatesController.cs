@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using System.Security.Claims;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
@@ -8,7 +11,11 @@ using Microsoft.EntityFrameworkCore;
 namespace ClinicApp.Api.Controllers;
 
 //JJQR - AI (Nov 19, 2026) - Icd10Code is optional (old callers that omit it keep working)
-public record DiagnosisTemplateInput(string Label, string Body, string? Icd10Code = null);
+public record DiagnosisTemplateInput(string Label, string Body, string? Icd10Code = null,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 //JJQR - END
 
 /// <summary>doctor_diagnosis_templates (§16.8) — a doctor's reusable free-text
@@ -67,9 +74,15 @@ public class DoctorDiagnosisTemplatesController(ClinicAppDbContext db, BuiltInTe
             return BadRequest(new { message = "Label and body are required." });
 
         var now = DateTimeOffset.UtcNow;
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<DoctorDiagnosisTemplate>(db, input.Id, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var t = new DoctorDiagnosisTemplate
         {
-            Id = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            Id = ClientIds.Use(input.Id),
+            //JJQR - END
+
             DoctorId = did.Value,
             Label = input.Label.Trim(),
             Body = input.Body.Trim(),

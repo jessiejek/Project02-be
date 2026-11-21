@@ -16,6 +16,9 @@ public class PaymentValidationTests(ApiFixture api) : ApiTestBase(api)
     [InlineData(0)]
     [InlineData(10)]          // below the ₱450 fee
     [InlineData(449.99)]
+    [InlineData(450.01)]      //JJQR - AI (Nov 21, 2026) - one centavo more is refused too: exactly the amount due
+    [InlineData(500)]         // cash with change is no longer accepted
+    [InlineData(1000)]
     [InlineData(99999999)]    // absurd
     public async Task Confirm_rejects_a_bad_amount_received(double amount)
     {
@@ -27,11 +30,10 @@ public class PaymentValidationTests(ApiFixture api) : ApiTestBase(api)
         Assert.Equal(PaymentStatus.Unpaid, await StatusOf(pay));
     }
 
+    //JJQR - AI (Nov 21, 2026) - EXACT: only the amount the doctor set is accepted (not less, not more with change)
     [Theory]
     [InlineData(450)]
-    [InlineData(500)]     // cash with change
-    [InlineData(1000)]
-    public async Task Confirm_accepts_the_fee_or_more_in_cash(double amount)
+    public async Task Confirm_accepts_exactly_the_amount_due(double amount)
     {
         var pay = await FreshPayment();
         using var staff = F.As(W.Staff, "Staff");
@@ -69,7 +71,7 @@ public class PaymentValidationTests(ApiFixture api) : ApiTestBase(api)
     {
         var pay = await FreshPayment();
         using var staff = F.As(W.Staff, "Staff");
-        await ShouldBe(HttpStatusCode.OK, await staff.PostAsync($"/api/payments/{pay}/confirm", ApiFactory.Body(new { payment_method = "Cash", amount_received = 500 })));
+        await ShouldBe(HttpStatusCode.OK, await staff.PostAsync($"/api/payments/{pay}/confirm", ApiFactory.Body(new { payment_method = "Cash", amount_received = 450 })));
         using var admin = F.As(W.Admin, "Admin");
         await ShouldBe(HttpStatusCode.BadRequest, await admin.PostAsync($"/api/payments/{pay}/refund", ApiFactory.Body(new { amount = 450, reason = "  " })));
         await ShouldBe(HttpStatusCode.OK, await admin.PostAsync($"/api/payments/{pay}/refund", ApiFactory.Body(new { amount = 450, reason = "patient asked" })));

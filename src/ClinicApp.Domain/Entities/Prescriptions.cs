@@ -9,8 +9,15 @@ public class Medicine
     public DateTimeOffset CreatedAt { get; set; }
 }
 
-public class PrescriptionGroup : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class PrescriptionGroup : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid GroupId { get; set; }
     public Guid PatientId { get; set; }
     public Guid DoctorId { get; set; }
@@ -25,8 +32,15 @@ public class PrescriptionGroup : IHasUpdatedAt
     [JsonPropertyName("bookings")] public Booking? Booking { get; set; }
 }
 
-public class PrescriptionLineItem
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class PrescriptionLineItem : ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid Id { get; set; }
     public Guid GroupId { get; set; }
     public Guid MedicineId { get; set; }

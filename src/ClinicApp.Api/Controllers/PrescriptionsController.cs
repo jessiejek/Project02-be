@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
@@ -17,11 +20,27 @@ public record RxItemInput(
     //JJQR - AI (Oct 31, 2026)
     string? Route = null,
     //JJQR - AI (Nov 20, 2026) - Rx pad "as needed" flag (nullable: older clients omit it)
-    bool? AsNeeded = null);
+    bool? AsNeeded = null,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 //JJQR - END
-public record UpsertRxGroupRequest(Guid PatientId, Guid DoctorId, Guid BookingId, List<RxItemInput> Items);
-public record UpsertRxTemplateRequest(Guid DoctorId, string Title, bool IsSystemTemplate, List<RxItemInput> Items);
-public record FavoriteMedicineInput(Guid MedicineId, string GenericName, string Dosage, string Quantity, string? Instruction);
+public record UpsertRxGroupRequest(Guid PatientId, Guid DoctorId, Guid BookingId, List<RxItemInput> Items,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? GroupId = null
+    //JJQR - END
+    );
+public record UpsertRxTemplateRequest(Guid DoctorId, string Title, bool IsSystemTemplate, List<RxItemInput> Items,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? TemplateId = null
+    //JJQR - END
+    );
+public record FavoriteMedicineInput(Guid MedicineId, string GenericName, string Dosage, string Quantity, string? Instruction,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 
 /// <summary>prescription_groups / _line_items / _templates / _template_items /
 /// doctor_favorite_medicines (contract §4/§6).</summary>
@@ -104,7 +123,10 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         var g = await db.PrescriptionGroups.Include(x => x.LineItems).SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
         if (g is null)
         {
-            g = new PrescriptionGroup { GroupId = Guid.NewGuid(), BookingId = bookingId, CreatedAt = now };
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            if (await ClientIds.TakenAsync<PrescriptionGroup>(db, req.GroupId, ct)) return ClientIds.Conflict();
+            g = new PrescriptionGroup { GroupId = ClientIds.Use(req.GroupId), BookingId = bookingId, CreatedAt = now };
+            //JJQR - END
             db.PrescriptionGroups.Add(g);
         }
         g.PatientId = req.PatientId;
@@ -116,7 +138,10 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         {
             db.PrescriptionLineItems.Add(new PrescriptionLineItem
             {
-                Id = Guid.NewGuid(), GroupId = g.GroupId, MedicineId = i.MedicineId,
+                //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+                Id = await ClientIds.FreshAsync<PrescriptionLineItem>(db, i.Id, ct),
+                //JJQR - END
+                GroupId = g.GroupId, MedicineId = i.MedicineId,
                 GenericName = i.GenericName, Dosage = i.Dosage, Quantity = i.Quantity,
                 Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance,
                 Timing = i.Timing, MealRelation = i.MealRelation,
@@ -169,17 +194,26 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         if (!actor.ActsAsDoctor(req.DoctorId)) return Forbid();
         if (req.IsSystemTemplate && !actor.IsAdmin) return Forbid(); // system sets are Admin-managed
 
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<PrescriptionTemplate>(db, req.TemplateId, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var now = DateTimeOffset.UtcNow;
         var t = new PrescriptionTemplate
         {
-            TemplateId = Guid.NewGuid(), DoctorId = req.DoctorId, Title = req.Title,
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            TemplateId = ClientIds.Use(req.TemplateId),
+            //JJQR - END
+            DoctorId = req.DoctorId, Title = req.Title,
             IsSystemTemplate = req.IsSystemTemplate, CreatedAt = now, UpdatedAt = now
         };
         db.PrescriptionTemplates.Add(t);
         foreach (var i in req.Items)
             db.PrescriptionTemplateItems.Add(new PrescriptionTemplateItem
             {
-                Id = Guid.NewGuid(), TemplateId = t.TemplateId, MedicineId = i.MedicineId,
+                //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+                Id = await ClientIds.FreshAsync<PrescriptionTemplateItem>(db, i.Id, ct),
+                //JJQR - END
+                TemplateId = t.TemplateId, MedicineId = i.MedicineId,
                 GenericName = i.GenericName, Dosage = i.Dosage, Quantity = i.Quantity,
                 Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance,
                 //JJQR - AI (Nov 19, 2026) - persist the structured Rx-pad fields instead of dropping them
@@ -212,7 +246,10 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         foreach (var i in req.Items)
             db.PrescriptionTemplateItems.Add(new PrescriptionTemplateItem
             {
-                Id = Guid.NewGuid(), TemplateId = t.TemplateId, MedicineId = i.MedicineId,
+                //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+                Id = await ClientIds.FreshAsync<PrescriptionTemplateItem>(db, i.Id, ct),
+                //JJQR - END
+                TemplateId = t.TemplateId, MedicineId = i.MedicineId,
                 GenericName = i.GenericName, Dosage = i.Dosage, Quantity = i.Quantity,
                 Instruction = i.Instruction, IsControlledSubstance = i.IsControlledSubstance,
                 //JJQR - AI (Nov 19, 2026) - persist the structured Rx-pad fields instead of dropping them
@@ -261,9 +298,15 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         //JJQR - AI (Nov 19, 2026) - new favorites go to the end of the doctor's list
         var last = await db.DoctorFavoriteMedicines.Where(x => x.DoctorId == doctorId).MaxAsync(x => (int?)x.SortOrder, ct) ?? 0;
         //JJQR - END
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<DoctorFavoriteMedicine>(db, input.Id, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var f = new DoctorFavoriteMedicine
         {
-            Id = Guid.NewGuid(), DoctorId = doctorId, MedicineId = input.MedicineId,
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            Id = ClientIds.Use(input.Id),
+            //JJQR - END
+            DoctorId = doctorId, MedicineId = input.MedicineId,
             GenericName = input.GenericName, Dosage = input.Dosage, Quantity = input.Quantity,
             Instruction = input.Instruction, SortOrder = last + 1, CreatedAt = DateTimeOffset.UtcNow
         };

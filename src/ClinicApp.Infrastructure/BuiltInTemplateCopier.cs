@@ -49,21 +49,44 @@ public sealed class BuiltInTemplateCopier(ClinicAppDbContext db)
 
     private async Task<IReadOnlyList<BuiltinSource>> LoadSourcesAsync(string kind, CancellationToken ct) => kind switch
     {
-        BuiltInTemplateKind.Soap => (await db.SoapTemplates.AsNoTracking()
-            .Where(t => t.IsSystemTemplate).ToListAsync(ct))
-            .Select(t => BuiltinSource.FromSoap(t)).ToList(),
+        //JJQR - AI (Nov 21, 2026) - SOAP / certificate templates come from the CODE catalog (so every environment has them); Admin-managed system rows in the database are still honoured
+        // (code wins when both have the same id, so a corrected wording replaces an old seeded one)
+        BuiltInTemplateKind.Soap => MergeByKey(
+            BuiltInTemplateCatalog.SoapTemplates.Select(d => BuiltinSource.FromSoap(new SoapTemplate
+            {
+                Id = Guid.Parse(d.Key), Title = d.Title, IsSystemTemplate = true, ChiefComplaint = d.ChiefComplaint,
+                Subjective = d.Subjective, Objective = d.Objective, Assessment = d.Assessment, Plan = d.Plan,
+            })),
+            (await db.SoapTemplates.AsNoTracking().Where(t => t.IsSystemTemplate).ToListAsync(ct))
+                .Select(t => BuiltinSource.FromSoap(t))),
+        //JJQR - END
         BuiltInTemplateKind.Rx => (await db.PrescriptionTemplates.AsNoTracking().Include(t => t.Items)
             .Where(t => t.IsSystemTemplate).ToListAsync(ct))
             .Select(t => BuiltinSource.FromRx(t)).ToList(),
-        BuiltInTemplateKind.Cert => (await db.MedicalCertificateTemplates.AsNoTracking()
-            .Where(t => t.IsSystemTemplate).ToListAsync(ct))
-            .Select(t => BuiltinSource.FromCert(t)).ToList(),
+        BuiltInTemplateKind.Cert => MergeByKey( //JJQR - AI (Nov 21, 2026)
+            BuiltInTemplateCatalog.CertTemplates.Select(d => BuiltinSource.FromCert(new MedicalCertificateTemplate
+            {
+                Id = Guid.Parse(d.Key), Title = d.Title, IsSystemTemplate = true, DiagnosisText = d.DiagnosisText,
+                Recommendations = d.Recommendations, PurposeException = d.PurposeException,
+            })),
+            (await db.MedicalCertificateTemplates.AsNoTracking().Where(t => t.IsSystemTemplate).ToListAsync(ct))
+                .Select(t => BuiltinSource.FromCert(t))),
         BuiltInTemplateKind.Diagnosis => BuiltInTemplateCatalog.Diagnoses
             .Select(d => BuiltinSource.FromDiagnosis(d)).ToList(),
         BuiltInTemplateKind.Phrase => BuiltInTemplateCatalog.Phrases
             .Select(p => BuiltinSource.FromPhrase(p)).ToList(),
         _ => [],
     };
+
+    //JJQR - AI (Nov 21, 2026)
+    private static IReadOnlyList<BuiltinSource> MergeByKey(IEnumerable<BuiltinSource> fromCode, IEnumerable<BuiltinSource> fromDb)
+    {
+        var all = fromCode.ToList();
+        var seen = all.Select(a => a.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        all.AddRange(fromDb.Where(d => seen.Add(d.Key)));
+        return all;
+    }
+    //JJQR - END
 
     /// <returns>True when a new owned row was inserted (restore counts this).</returns>
     private async Task<bool> AdoptOrCopyAsync(Guid doctorId, string kind, BuiltinSource src, bool restoreMissing, CancellationToken ct)

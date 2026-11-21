@@ -2,8 +2,15 @@ using ClinicApp.Domain.Enums;
 
 namespace ClinicApp.Domain.Entities;
 
-public class AuditLog
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class AuditLog : ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid Id { get; set; }
     public AuditEntityType EntityType { get; set; }
     public Guid EntityId { get; set; }

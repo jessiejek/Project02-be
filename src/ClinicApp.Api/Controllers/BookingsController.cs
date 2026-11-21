@@ -1,4 +1,8 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Auditing;
+using ClinicApp.Api.Hubs;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain;
@@ -6,6 +10,7 @@ using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
@@ -19,25 +24,48 @@ public record CreateBookingRequest(
     List<Guid> ServiceIds,
     PaymentMode PaymentMode,
     bool IsWalkIn,
-    string? Notes);
+    string? Notes,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? BookingId = null,
+    Guid? PaymentId = null,
+    //JJQR - END
+    //JJQR - AI (21 Nov 2026) optional: visit_type (New | FollowUp) and discount_category (Senior | PWD) for desk-created bookings; absent = unchanged behaviour
+    VisitType? VisitType = null,
+    string? DiscountCategory = null
+    //JJQR - END
+    );
 
 public record UpdateBookingStatusRequest(BookingStatus Status, string? Reason);
 
 public record CancelOwnBookingRequest(string? Reason);
 
-public record RescheduleBookingRequest(DateOnly AppointmentDate, string? Reason);
+//JJQR - AI (Nov 21, 2026) client-supplied ids for the new booking made by a reschedule (offline sync)
+public record RescheduleBookingRequest(DateOnly AppointmentDate, string? Reason, Guid? NewBookingId = null, Guid? NewPaymentId = null);
+//JJQR - END
 
 public record RescheduleBookingResponse(Guid OldBookingId, Guid NewBookingId, BookingStatus OldStatus, BookingStatus NewBookingStatus);
 
 public record ClosedDateDto(DateOnly Date, string Reason);
 
-public record CreatePatientBookingRequest(DateOnly? AppointmentDate, VisitType? VisitType, string? Notes);
+public record CreatePatientBookingRequest(DateOnly? AppointmentDate, VisitType? VisitType, string? Notes,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? BookingId = null, Guid? PaymentId = null
+    //JJQR - END
+    );
 
 [ApiController]
 [Authorize]
 [Route("api/bookings")]
-public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
+public class BookingsController(ClinicAppDbContext db, ActorResolver actors, IHubContext<ClinicHub> hub) : ControllerBase
 {
+    //JJQR - AI (Nov 21, 2026) - realtime: a status change made here (Undo check-in, no-show, cancel, reschedule, new booking) used to reach the
+    // database but not SignalR, so the doctor's and the other staff screens stayed stale until their fallback poll. Same event + groups as QueueController.
+    private Task NotifyQueueChangedAsync(Booking b) =>
+        Task.WhenAll(
+            hub.Clients.Group("staff").SendAsync("QueueUpdated", new { booking_id = b.BookingId, doctor_id = b.DoctorId, status = b.Status.ToString() }),
+            hub.Clients.Group($"doctor:{b.DoctorId}").SendAsync("QueueUpdated", new { booking_id = b.BookingId, doctor_id = b.DoctorId, status = b.Status.ToString() }));
+    //JJQR - END
+
     private IQueryable<Booking> WithEmbeds() =>
         db.Bookings.AsNoTracking()
             .Include(b => b.Patient)
@@ -100,6 +128,15 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
     [HttpPost]
     public async Task<ActionResult<Booking>> Create(CreateBookingRequest request, CancellationToken ct)
     {
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (ClientIds.Supplied(request.BookingId))
+        {
+            var dup = await db.Bookings.AsNoTracking().FirstOrDefaultAsync(b => b.BookingId == request.BookingId, ct);
+            if (dup is not null)
+                return dup.PatientId == request.PatientId ? Ok(await WithEmbeds().SingleAsync(b => b.BookingId == dup.BookingId, ct)) : ClientIds.Conflict();
+        }
+        if (await ClientIds.TakenAsync<Payment>(db, request.PaymentId, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var doctor = await db.Doctors.SingleOrDefaultAsync(d => d.DoctorId == request.DoctorId, ct);
         if (doctor is null) return BadRequest(new { message = "Doctor not found." });
 
@@ -120,9 +157,37 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         var now = DateTimeOffset.UtcNow;
         var totalFee = doctor.ConsultationFee + services.Sum(s => s.Price);
 
+        //JJQR - AI (21 Nov 2026) optional visit type / discount. Only when sent: the consultation part of the fee comes from the clinic fee schedule (same ClinicFees.Compute as walk-in check-in) and the
+        // selected services are added on top; the discount must be backed by the patient (Senior: 60+ or a Senior ID on file; PWD: a PWD ID on file). Nothing sent = exactly the old fee and behaviour.
+        var visitType = request.VisitType ?? VisitType.New;
+        string? discount = null;
+        decimal discountAmount = 0m;
+        var consultationSnapshot = doctor.ConsultationFee;
+        if (request.VisitType is not null || !string.IsNullOrWhiteSpace(request.DiscountCategory))
+        {
+            if (!QueueLane.IsValidDiscount(request.DiscountCategory))
+                return BadRequest(new { message = "Discount must be Senior or PWD." });
+            discount = QueueLane.NormalizeDiscount(request.DiscountCategory);
+            var patientForFee = await db.Patients.AsNoTracking().SingleOrDefaultAsync(p => p.PatientId == request.PatientId, ct);
+            if (patientForFee is null) return BadRequest(new { message = "Patient not found." });
+            if (discount == "Senior" && string.IsNullOrWhiteSpace(patientForFee.SeniorIdNumber) && !QueueLane.IsSenior(patientForFee.DateOfBirth, request.AppointmentDate))
+                return BadRequest(new { message = "A Senior discount needs a patient aged 60 or over, or a Senior ID number on file." });
+            if (discount == "PWD" && string.IsNullOrWhiteSpace(patientForFee.PwdIdNumber))
+                return BadRequest(new { message = "A PWD discount needs a PWD ID number on file." });
+            var clinic = await db.ClinicSettings.AsNoTracking().SingleOrDefaultAsync(c => c.Id == 1, ct);
+            if (clinic is null) return BadRequest(new { message = "Clinic settings missing." });
+            var fee = ClinicFees.Compute(clinic, visitType, false, discount);
+            consultationSnapshot = fee.Subtotal;
+            discountAmount = fee.DiscountAmount;
+            totalFee = fee.Total + services.Sum(s => s.Price);
+        }
+        //JJQR - END
+
         var booking = new Booking
         {
-            BookingId = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            BookingId = ClientIds.Use(request.BookingId),
+            //JJQR - END
             PatientId = request.PatientId,
             DoctorId = request.DoctorId,
             AppointmentDate = request.AppointmentDate,
@@ -130,8 +195,9 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
             SlotEndTime = request.SlotEndTime,
             Status = request.IsWalkIn ? BookingStatus.CheckedIn : BookingStatus.Pending,
             PaymentMode = request.PaymentMode,
-            QueueNumber = await QueueSequencer.NextAsync(db, request.AppointmentDate, ct),
-            ConsultationFeeSnapshot = doctor.ConsultationFee,
+            QueueNumber = await QueueSequencer.NextForPatientAsync(db, request.AppointmentDate, request.PatientId, discount, ct), //JJQR - AI (Nov 21, 2026) - priority lane // JJQR - AI (21 Nov 2026) discount picks the S- lane // JJQR - END
+            ConsultationFeeSnapshot = consultationSnapshot, //JJQR - AI (21 Nov 2026) // JJQR - END
+            VisitType = visitType, DiscountCategory = discount, DiscountAmount = discountAmount, //JJQR - AI (21 Nov 2026) // JJQR - END
             TotalFee = totalFee,
             AmountDue = totalFee,
             IsWalkIn = request.IsWalkIn,
@@ -149,7 +215,9 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
 
         db.Payments.Add(new Payment
         {
-            PaymentId = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            PaymentId = ClientIds.Use(request.PaymentId),
+            //JJQR - END
             BookingId = booking.BookingId,
             Amount = totalFee,
             Status = PaymentStatus.Unpaid,
@@ -163,6 +231,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
             $"Doctor: {doctor.DoctorId}; Date: {booking.AppointmentDate:yyyy-MM-dd} {booking.SlotStartTime}; Fee: {totalFee:0.00}");
 
         await db.SaveChangesAsync(ct);
+        await NotifyQueueChangedAsync(booking); //JJQR - AI (Nov 21, 2026) - realtime
 
         var created = await WithEmbeds().SingleAsync(b => b.BookingId == booking.BookingId, ct);
         return CreatedAtAction(nameof(GetById), new { id = booking.BookingId }, created);
@@ -182,6 +251,12 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         if (illegal is not null)
             return BadRequest(new { message = illegal });
 
+        //JJQR - AI (Nov 21, 2026) - cancelling a paid booking would orphan the money; the queue cancel already refuses it, so this endpoint does too (refund first)
+        if (request.Status == BookingStatus.Cancelled
+            && await db.Payments.AsNoTracking().AnyAsync(p => p.BookingId == id && p.Status == PaymentStatus.Paid, ct))
+            return Conflict(new { message = "This booking has already been paid. Refund it before cancelling." });
+        //JJQR - END
+
         booking.Status = request.Status;
         if (request.Status == BookingStatus.Cancelled)
         {
@@ -197,6 +272,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         AuditLogWriter.Add(db, AuditEntityType.Booking, booking.BookingId, request.Status.ToString(), userId, details);
 
         await db.SaveChangesAsync(ct);
+        await NotifyQueueChangedAsync(booking); //JJQR - AI (Nov 21, 2026) - realtime
         return Ok(booking);
     }
 
@@ -242,6 +318,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         AuditLogWriter.Add(db, AuditEntityType.Booking, booking.BookingId, "Cancelled (patient)", userId,
             $"Queue: {booking.QueueNumber}; Date: {booking.AppointmentDate:yyyy-MM-dd}");
         await db.SaveChangesAsync(ct);
+        await NotifyQueueChangedAsync(booking); //JJQR - AI (Nov 21, 2026) - realtime
         return Ok(new { booking_id = booking.BookingId, status = booking.Status.ToString() });
     }
 
@@ -256,6 +333,18 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
             .Include(b => b.BookingServices)
             .SingleOrDefaultAsync(b => b.BookingId == id, ct);
         if (booking is null) return NotFound();
+
+        //JJQR - AI (Nov 21, 2026) client-supplied ids: the same reschedule sent again (same new_booking_id, same patient and date) returns the earlier result; any other reuse of an id is a 409
+        if (ClientIds.Supplied(request.NewBookingId))
+        {
+            var dup = await db.Bookings.AsNoTracking().FirstOrDefaultAsync(b => b.BookingId == request.NewBookingId, ct);
+            if (dup is not null)
+                return dup.PatientId == booking.PatientId && booking.Status == BookingStatus.Rescheduled && dup.AppointmentDate == request.AppointmentDate
+                    ? Ok(new RescheduleBookingResponse(booking.BookingId, dup.BookingId, BookingStatus.Rescheduled, dup.Status))
+                    : ClientIds.Conflict();
+        }
+        if (await ClientIds.TakenAsync<Payment>(db, request.NewPaymentId, ct)) return ClientIds.Conflict();
+        //JJQR - END
 
         var oldStatus = booking.Status;
         var illegal = BookingStatusMachine.RejectReason(oldStatus, BookingStatus.Rescheduled);
@@ -289,7 +378,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
             _ => BookingStatus.Confirmed,
         };
 
-        var newId = Guid.NewGuid();
+        var newId = ClientIds.Use(request.NewBookingId); //JJQR - AI (Nov 21, 2026) client-supplied id // JJQR - END
         var newBooking = new Booking
         {
             BookingId = newId,
@@ -300,7 +389,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
             SlotEndTime = booking.SlotEndTime,
             Status = newStatus,
             PaymentMode = booking.PaymentMode,
-            QueueNumber = await QueueSequencer.NextAsync(db, request.AppointmentDate, ct),
+            QueueNumber = await QueueSequencer.NextForPatientAsync(db, request.AppointmentDate, booking.PatientId, booking.DiscountCategory, ct), //JJQR - AI (Nov 21, 2026) - priority lane
             ConsultationFeeSnapshot = booking.ConsultationFeeSnapshot,
             TotalFee = booking.TotalFee,
             AmountDue = booking.AmountDue,
@@ -328,7 +417,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
 
         db.Payments.Add(new Payment
         {
-            PaymentId = Guid.NewGuid(),
+            PaymentId = ClientIds.Use(request.NewPaymentId), //JJQR - AI (Nov 21, 2026) client-supplied id // JJQR - END
             BookingId = newId,
             Amount = booking.TotalFee,
             Status = PaymentStatus.Unpaid,
@@ -342,6 +431,8 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
             $"From {booking.BookingId}; Queue: {newBooking.QueueNumber}");
 
         await db.SaveChangesAsync(ct);
+        await NotifyQueueChangedAsync(booking); //JJQR - AI (Nov 21, 2026) - realtime
+        await NotifyQueueChangedAsync(newBooking);
         return Ok(new RescheduleBookingResponse(booking.BookingId, newId, BookingStatus.Rescheduled, newStatus));
     }
     //JJQR - END
@@ -417,6 +508,15 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         var patientId = await CurrentPatientIdAsync(ct);
         if (patientId is null) return Forbid();
 
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (ClientIds.Supplied(request.BookingId))
+        {
+            var dup = await db.Bookings.AsNoTracking().FirstOrDefaultAsync(b => b.BookingId == request.BookingId, ct);
+            if (dup is not null)
+                return dup.PatientId == patientId ? Ok(await WithEmbeds().SingleAsync(b => b.BookingId == dup.BookingId, ct)) : ClientIds.Conflict();
+        }
+        if (await ClientIds.TakenAsync<Payment>(db, request.PaymentId, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var doctor = await db.Doctors.OrderBy(d => d.DoctorId).FirstOrDefaultAsync(ct); // one doctor, same as QueueController
         if (doctor is null) return BadRequest(new { message = "No doctor configured." });
 
@@ -442,7 +542,9 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
 
         var booking = new Booking
         {
-            BookingId = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            BookingId = ClientIds.Use(request.BookingId),
+            //JJQR - END
             PatientId = patientId.Value,
             DoctorId = doctor.DoctorId,
             AppointmentDate = date,
@@ -450,7 +552,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
             SlotEndTime = default,
             Status = BookingStatus.Pending,
             PaymentMode = PaymentMode.PayAtClinic,
-            QueueNumber = await QueueSequencer.NextAsync(db, date, ct),
+            QueueNumber = await QueueSequencer.NextForPatientAsync(db, date, patientId.Value, null, ct), //JJQR - AI (Nov 21, 2026) - priority lane
             VisitType = visitType,
             ConsultationFeeSnapshot = fee.Subtotal,
             TotalFee = fee.Total,
@@ -465,7 +567,9 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
         db.Bookings.Add(booking);
         db.Payments.Add(new Payment
         {
-            PaymentId = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            PaymentId = ClientIds.Use(request.PaymentId),
+            //JJQR - END
             BookingId = booking.BookingId,
             Amount = fee.Total,
             Status = PaymentStatus.Unpaid,
@@ -477,6 +581,7 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors) : C
             booking.CreatedByUserId, $"Date: {date:yyyy-MM-dd}; Queue: {booking.QueueNumber}; Fee: {fee.Total:0.00}");
 
         await db.SaveChangesAsync(ct);
+        await NotifyQueueChangedAsync(booking); //JJQR - AI (Nov 21, 2026) - realtime
 
         var created = await WithEmbeds().SingleAsync(b => b.BookingId == booking.BookingId, ct);
         return CreatedAtAction(nameof(GetById), new { id = booking.BookingId }, created);

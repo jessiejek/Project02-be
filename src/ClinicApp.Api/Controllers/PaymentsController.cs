@@ -1,3 +1,4 @@
+using ClinicApp.Api.Auditing; //JJQR - AI (Nov 21, 2026)
 using ClinicApp.Api.Hubs;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
@@ -12,7 +13,7 @@ using Microsoft.EntityFrameworkCore;
 namespace ClinicApp.Api.Controllers;
 
 public record ConfirmPaymentRequest(PaymentMethod PaymentMethod, string? ReferenceNumber, string? OrNumber, decimal? AmountReceived, string? ConfirmNotes);
-public record WaivePaymentRequest(string Reason);
+public record WaivePaymentRequest(string Reason, string? OrNumber = null); //JJQR - AI (21 Nov 2026) optional OR number recorded with the waiver // JJQR - END
 public record RefundPaymentRequest(decimal Amount, string Reason);
 
 [ApiController]
@@ -20,9 +21,81 @@ public record RefundPaymentRequest(decimal Amount, string Reason);
 [Route("api/payments")]
 public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, ActorResolver actors) : ControllerBase
 {
-    // JJQR - AI (Nov 20, 2026) - B-02: upper sanity bound for a single over-the-counter payment
-    private const decimal MaxAmountReceived = 100_000m;
-    // JJQR - END
+    //JJQR - AI (Nov 21, 2026) - a visit the doctor waived stays on the front desk's list, marked "Waived", collecting ₱0, until staff confirm it — so staff KNOW it was waived instead of it silently vanishing.
+    /// <summary>Completed visits whose fee was waived and that the front desk has not confirmed yet (waivers recorded before this feature were marked confirmed by a migration, so only new ones appear).</summary>
+    [Authorize(Roles = "Admin,Staff")]
+    [HttpGet("waived-awaiting-confirmation")]
+    public async Task<ActionResult<List<object>>> WaivedAwaitingConfirmation(CancellationToken ct)
+    {
+        var rows = await db.Bookings.AsNoTracking()
+            .Where(b => b.Status == BookingStatus.Completed
+                && b.Payment != null && b.Payment.Status == PaymentStatus.Waived && b.Payment.ConfirmedAt == null)
+            .OrderByDescending(b => b.AppointmentDate).ThenBy(b => b.QueueNumber)
+            .Select(b => new
+            {
+                booking_id = b.BookingId,
+                payment_id = b.Payment!.PaymentId,
+                patient_name = b.Patient.FirstName + " " + b.Patient.LastName,
+                patient_code = b.Patient.PatientCode,
+                queue_number = b.QueueNumber,
+                appointment_date = b.AppointmentDate,
+                waived_reason = b.Payment.WaivedReason
+            })
+            .ToListAsync(ct);
+        return Ok(rows.Cast<object>().ToList());
+    }
+
+    /// <summary>The front desk confirms it has seen the waiver (nothing to collect). Idempotent.</summary>
+    [Authorize(Roles = "Admin,Staff")]
+    [HttpPost("{id:guid}/confirm-waiver")]
+    public async Task<IActionResult> ConfirmWaiver(Guid id, CancellationToken ct)
+    {
+        var payment = await db.Payments.SingleOrDefaultAsync(p => p.PaymentId == id, ct);
+        if (payment is null) return NotFound();
+        if (payment.Status != PaymentStatus.Waived)
+            return BadRequest(new { message = "Only a waived professional fee can be confirmed this way." });
+        if (payment.ConfirmedAt is not null) return Ok(payment);
+
+        payment.ConfirmedByUserId = CurrentUserId();
+        payment.ConfirmedAt = DateTimeOffset.UtcNow;
+        AuditLogWriter.Add(db, AuditEntityType.Payment, payment.PaymentId, "Waiver confirmed (front desk)", CurrentUserId(),
+            "Front desk confirmed the professional fee is waived; ₱0 collected.");
+        await db.SaveChangesAsync(ct);
+
+        var doctorId = await db.Bookings.AsNoTracking().Where(b => b.BookingId == payment.BookingId).Select(b => b.DoctorId).SingleAsync(ct);
+        await BroadcastAsync(doctorId, new { booking_id = payment.BookingId, payment_id = payment.PaymentId, status = payment.Status.ToString() }, ct);
+        return Ok(payment);
+    }
+    //JJQR - END
+
+    //JJQR - AI (21 Nov 2026) admin review: OR numbers shared by more than one payment (read-only; clashes accepted from sync nodes show up here)
+    [Authorize(Roles = "Admin")]
+    [HttpGet("or-clashes")]
+    public async Task<IActionResult> OrClashes(CancellationToken ct)
+    {
+        var keys = await db.Payments.AsNoTracking()
+            .Where(p => p.OrNumber != null && p.OrNumber != "")
+            .GroupBy(p => p.OrNumber!.ToLower())
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key).Take(500).ToListAsync(ct);
+        if (keys.Count == 0) return Ok(Array.Empty<object>());
+
+        var rows = await db.Payments.AsNoTracking()
+            .Where(p => p.OrNumber != null && keys.Contains(p.OrNumber.ToLower()))
+            .Select(p => new { p.OrNumber, p.PaymentId, p.BookingId, p.Status, p.Amount, p.ConfirmedAt, p.OriginNodeId, p.CreatedAt })
+            .ToListAsync(ct);
+        return Ok(rows.GroupBy(r => r.OrNumber!.Trim().ToLower()).OrderBy(g => g.Key).Select(g => new
+        {
+            or_number = g.OrderBy(r => r.CreatedAt).First().OrNumber,
+            count = g.Count(),
+            payments = g.OrderBy(r => r.CreatedAt).Select(r => new
+            {
+                payment_id = r.PaymentId, booking_id = r.BookingId, status = r.Status.ToString(), amount = r.Amount,
+                confirmed_at = r.ConfirmedAt, origin_node_id = r.OriginNodeId, origin = r.OriginNodeId is null ? "cloud" : "node"
+            })
+        }));
+    }
+    //JJQR - END
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<Payment>> GetById(Guid id, CancellationToken ct)
@@ -46,6 +119,22 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.PaymentId == id, ct);
         if (payment is null) return NotFound();
+
+        //JJQR - AI (Nov 21, 2026) - never collect against a stale record: first make the payment follow the doctor's finalised fee decision. A visit the doctor waived cannot be paid,
+        // and the amount staff are checked against is the doctor's charge amount.
+        var healed = await ClinicApp.Api.Billing.FeeDecisionReconciler.ReconcileAsync(db, payment.BookingId, DateTimeOffset.UtcNow, ct);
+        if (healed.Changed)
+        {
+            await db.SaveChangesAsync(ct);
+            if (payment.Status == PaymentStatus.Waived)
+            {
+                var doctorId = await db.Bookings.AsNoTracking().Where(b => b.BookingId == payment.BookingId).Select(b => b.DoctorId).SingleAsync(ct);
+                await BroadcastAsync(doctorId, new { booking_id = payment.BookingId, payment_id = payment.PaymentId, status = payment.Status.ToString() }, ct);
+                return Conflict(new { message = "The doctor waived this professional fee, so there is nothing to collect." });
+            }
+        }
+        //JJQR - END
+
         var illegalConfirm = PaymentStatusMachine.RejectReason(payment.Status, PaymentStatus.Paid);
         if (illegalConfirm is not null)
             return BadRequest(new { message = illegalConfirm });
@@ -54,23 +143,28 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         // (cash may be more — change is given back — but never below the fee, zero, negative or absurd)
         if (!Enum.IsDefined(request.PaymentMethod))
             return BadRequest(new { message = "Choose a valid payment method." });
-        if (request.AmountReceived is { } received)
-        {
-            if (received <= 0 && payment.Amount > 0)
-                return BadRequest(new { message = "Amount received must be greater than zero." });
-            if (received < payment.Amount)
-                return BadRequest(new { message = $"Amount received (₱{received:0.##}) is less than the amount due (₱{payment.Amount:0.##})." });
-            if (received > MaxAmountReceived)
-                return BadRequest(new { message = $"Amount received cannot be more than ₱{MaxAmountReceived:N0}." });
-        }
+        //JJQR - AI (Nov 21, 2026) - EXACT: what is recorded is exactly what the doctor set — not less, and not more with change handed back (an over-amount used to inflate the revenue report)
+        if (request.AmountReceived is { } received && received != payment.Amount)
+            return BadRequest(new { message = $"Amount received (₱{received:0.##}) must be exactly the amount due (₱{payment.Amount:0.##})." });
+        //JJQR - END
         if (request.ReferenceNumber is { Length: > 100 } || request.OrNumber is { Length: > 100 } || request.ConfirmNotes is { Length: > 1000 })
             return BadRequest(new { message = "Reference number, OR number or notes are too long." });
         // JJQR - END
 
+        //JJQR - AI (21 Nov 2026) a duplicate OR number (case-insensitive) is refused with 409 and nothing is saved; nothing has been printed yet, so the user can retry
+        var orNumber = string.IsNullOrWhiteSpace(request.OrNumber) ? null : request.OrNumber.Trim();
+        if (orNumber is not null)
+        {
+            var orLower = orNumber.ToLower();
+            if (await db.Payments.AsNoTracking().AnyAsync(p => p.PaymentId != id && p.OrNumber != null && p.OrNumber.ToLower() == orLower, ct))
+                return Conflict(new { error = "or_number_duplicate", message = $"OR number {orNumber} is already used. Enter a different OR number.", or_number = orNumber });
+        }
+        //JJQR - END
+
         payment.Status = PaymentStatus.Paid;
         payment.PaymentMethod = request.PaymentMethod;
         payment.ReferenceNumber = request.ReferenceNumber;
-        payment.OrNumber = request.OrNumber;
+        payment.OrNumber = orNumber; //JJQR - AI (21 Nov 2026) trimmed; blank = none // JJQR - END
         payment.AmountReceived = request.AmountReceived ?? payment.Amount; // JJQR - AI (Nov 20, 2026) - B-02: no amount typed = exact fee
         payment.ConfirmNotes = request.ConfirmNotes;
         payment.ConfirmedByUserId = CurrentUserId();
@@ -79,7 +173,13 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         var booking = await db.Bookings.SingleAsync(b => b.BookingId == payment.BookingId, ct);
         booking.AmountDue = 0;
 
-        await db.SaveChangesAsync(ct);
+        //JJQR - AI (21 Nov 2026) a race on the unique OR index maps to the same 409 (nothing saved)
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException ex) when (ex.ToString().Contains("ix_payments_or_number_cloud", StringComparison.OrdinalIgnoreCase))
+        {
+            return Conflict(new { error = "or_number_duplicate", message = $"OR number {orNumber} is already used. Enter a different OR number.", or_number = orNumber });
+        }
+        //JJQR - END
         await BroadcastAsync(booking.DoctorId, new
         {
             booking_id = booking.BookingId,
@@ -114,15 +214,40 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         if (illegalWaive is not null)
             return BadRequest(new { message = illegalWaive });
 
+        //JJQR - AI (21 Nov 2026) the OR number sent with a waive is saved on the payment; same duplicate rule as confirm (409, nothing saved)
+        var waiveOr = string.IsNullOrWhiteSpace(request.OrNumber) ? null : request.OrNumber.Trim();
+        if (waiveOr is { Length: > 100 }) return BadRequest(new { message = "OR number is too long." });
+        if (waiveOr is not null)
+        {
+            var waiveOrLower = waiveOr.ToLower();
+            if (await db.Payments.AsNoTracking().AnyAsync(p => p.PaymentId != id && p.OrNumber != null && p.OrNumber.ToLower() == waiveOrLower, ct))
+                return Conflict(new { error = "or_number_duplicate", message = $"OR number {waiveOr} is already used. Enter a different OR number.", or_number = waiveOr });
+            payment.OrNumber = waiveOr;
+        }
+        //JJQR - END
+
         payment.Status = PaymentStatus.Waived;
         payment.WaivedReason = request.Reason;
         payment.WaivedByUserId = CurrentUserId();
         payment.WaivedAt = DateTimeOffset.UtcNow;
+        //JJQR - AI (Nov 21, 2026) - staff / admin recording a waiver at the desk have, by doing so, confirmed it; only a doctor's own waiver waits for the front desk to confirm
+        if (!actor.IsDoctor)
+        {
+            payment.ConfirmedByUserId = CurrentUserId();
+            payment.ConfirmedAt = payment.WaivedAt;
+        }
+        //JJQR - END
 
         var booking = await db.Bookings.SingleAsync(b => b.BookingId == payment.BookingId, ct);
         booking.AmountDue = 0;
 
-        await db.SaveChangesAsync(ct);
+        //JJQR - AI (21 Nov 2026) a race on the unique OR index maps to the same 409 (nothing saved)
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException ex) when (waiveOr is not null && ex.ToString().Contains("ix_payments_or_number_cloud", StringComparison.OrdinalIgnoreCase))
+        {
+            return Conflict(new { error = "or_number_duplicate", message = $"OR number {waiveOr} is already used. Enter a different OR number.", or_number = waiveOr });
+        }
+        //JJQR - END
         await BroadcastAsync(booking.DoctorId, new
         {
             booking_id = booking.BookingId,

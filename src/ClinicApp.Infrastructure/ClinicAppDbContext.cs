@@ -81,6 +81,27 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     public DbSet<ClinicOperatingHour> ClinicOperatingHours => Set<ClinicOperatingHour>();
     public DbSet<ClinicAcceptedPaymentMethod> ClinicAcceptedPaymentMethods => Set<ClinicAcceptedPaymentMethod>();
 
+    //JJQR - AI (Nov 21, 2026) cloud sync: node registry, push idempotency log, pull change log
+    public DbSet<SyncNode> SyncNodes => Set<SyncNode>();
+    public DbSet<SyncOperation> SyncOperations => Set<SyncOperation>();
+    public DbSet<SyncChange> SyncChanges => Set<SyncChange>();
+    //JJQR - AI (Nov 21, 2026) offline self-edits: per-field last-write times
+    public DbSet<SyncFieldStamp> SyncFieldStamps => Set<SyncFieldStamp>();
+
+    /// <summary>Set by the push engine before SaveChanges: the node-clock time to record for a field it applied
+    /// (key = aggregate, entity_id, field). Fields not listed are stamped with the cloud clock.</summary>
+    public Dictionary<(string Aggregate, string EntityId, string Field), DateTimeOffset> SyncFieldTimes { get; } = new();
+    //JJQR - END
+
+    /// <summary>Set by the sync push engine while it applies a node's operation: rows created get
+    /// this origin_node_id and the sync_changes rows carry it (pull skips a node's own changes).</summary>
+    public Guid? SyncWriterNodeId { get; set; }
+
+    /// <summary>Turn the sync change log off for a context (e.g. a Clinic Node that does not want
+    /// cloud-side change rows in its local file). On by default.</summary>
+    public bool SyncChangeLogEnabled { get; set; } = true;
+    //JJQR - END
+
     // Reporting views (keyless)
     public DbSet<VDoctorRating> VDoctorRatings => Set<VDoctorRating>();
     public DbSet<VDailyBookingSummary> VDailyBookingSummaries => Set<VDailyBookingSummary>();
@@ -239,10 +260,21 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
             e.HasKey(p => p.PaymentId);
             e.HasIndex(p => p.BookingId).IsUnique(); // 1:1 with Booking
             e.HasOne(p => p.Booking).WithOne(b => b.Payment).HasForeignKey<Payment>(p => p.BookingId).OnDelete(DeleteBehavior.Cascade);
+            //JJQR - AI (21 Nov 2026) OR numbers: max 100 chars, and unique among ONLINE (cloud-written, origin_node_id IS NULL) payments only. Payments accepted from a clinic node keep the OR as printed even if it clashes (flagged, never dropped), so they are outside the index.
+            // Uniqueness is case-insensitive because it follows the column / database collation (SQL Server default SQL_Latin1_General_CP1_CI_AS; the app also checks case-insensitively in code).
+            e.Property(p => p.OrNumber).HasMaxLength(100);
+            e.HasIndex(p => p.OrNumber).IsUnique().HasDatabaseName("ix_payments_or_number_cloud").HasFilter("[or_number] IS NOT NULL AND [origin_node_id] IS NULL");
+            //JJQR - END
         });
 
         modelBuilder.Entity<Review>(e => e.HasKey(r => r.ReviewId));
-        modelBuilder.Entity<QueueCounter>(e => e.HasKey(c => c.Date));
+        //JJQR - AI (Nov 21, 2026) - priority lane: one counter row per (day, lane) so R and S each count from 1
+        modelBuilder.Entity<QueueCounter>(e =>
+        {
+            e.HasKey(c => new { c.Date, c.Lane });
+            e.Property(c => c.Lane).HasMaxLength(1);
+        });
+        //JJQR - END
 
         // ── Clinical ────────────────────────────────────────────────────
         modelBuilder.Entity<Consultation>(e =>
@@ -435,6 +467,51 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         });
         modelBuilder.Entity<ClinicAcceptedPaymentMethod>(e => e.HasKey(p => p.PaymentMethod));
 
+        //JJQR - AI (Nov 21, 2026) cloud sync tables
+        modelBuilder.Entity<SyncNode>(e =>
+        {
+            e.ToTable("sync_nodes");
+            e.HasKey(n => n.NodeId);
+            e.Property(n => n.NodeId).ValueGeneratedNever();
+            e.Property(n => n.Name).HasMaxLength(200);
+            e.Property(n => n.Platform).HasMaxLength(50);
+            e.Property(n => n.AppVersion).HasMaxLength(50);
+            e.Property(n => n.SecretHash).HasMaxLength(128);
+            e.Property(n => n.Status).HasMaxLength(20);
+        });
+        modelBuilder.Entity<SyncOperation>(e =>
+        {
+            e.ToTable("sync_operations");
+            e.HasKey(o => o.OperationId);
+            e.Property(o => o.OperationId).ValueGeneratedNever();
+            e.Property(o => o.Aggregate).HasMaxLength(64);
+            e.Property(o => o.EntityId).HasMaxLength(100);
+            e.Property(o => o.OperationType).HasMaxLength(32);
+            e.Property(o => o.Status).HasMaxLength(20);
+            e.Property(o => o.ReasonCode).HasMaxLength(64);
+            e.HasIndex(o => new { o.NodeId, o.ReceivedAt });
+        });
+        modelBuilder.Entity<SyncChange>(e =>
+        {
+            e.ToTable("sync_changes");
+            e.HasKey(c => c.Seq);
+            e.Property(c => c.Seq).ValueGeneratedOnAdd();
+            e.Property(c => c.Aggregate).HasMaxLength(64);
+            e.Property(c => c.EntityId).HasMaxLength(100);
+            e.HasIndex(c => new { c.Aggregate, c.EntityId });
+        });
+        //JJQR - AI (Nov 21, 2026) offline self-edits
+        modelBuilder.Entity<SyncFieldStamp>(e =>
+        {
+            e.ToTable("sync_field_stamps");
+            e.HasKey(s => new { s.Aggregate, s.EntityId, s.Field });
+            e.Property(s => s.Aggregate).HasMaxLength(64);
+            e.Property(s => s.EntityId).HasMaxLength(100);
+            e.Property(s => s.Field).HasMaxLength(64);
+        });
+        //JJQR - END
+        //JJQR - END
+
         // ── Reporting views (keyless, mapped to SQL views created in a migration) ──
         modelBuilder.Entity<VDoctorRating>(e => { e.HasNoKey(); e.ToView("v_doctor_ratings"); });
         modelBuilder.Entity<VDailyBookingSummary>(e => { e.HasNoKey(); e.ToView("v_daily_booking_summary"); });
@@ -448,12 +525,18 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         StampUpdatedAt();
+        //JJQR - AI (Nov 21, 2026) cloud sync change log
+        if (SyncChangeLogEnabled) ClinicApp.Infrastructure.Sync.SyncChangeRecorder.Record(this);
+        //JJQR - END
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         StampUpdatedAt();
+        //JJQR - AI (Nov 21, 2026) cloud sync change log
+        if (SyncChangeLogEnabled) ClinicApp.Infrastructure.Sync.SyncChangeRecorder.Record(this);
+        //JJQR - END
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 

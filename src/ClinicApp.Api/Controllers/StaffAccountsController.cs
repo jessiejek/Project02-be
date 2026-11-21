@@ -94,6 +94,34 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         return row is null ? NotFound() : Ok(row);
     }
 
+    //JJQR - AI (21 Nov 2026) desktop: self-only profile edit (name, phone, avatar); role/status/email are never touched here
+    public sealed record UpdateMyProfileRequest(
+        string? FullName,
+        [property: System.Text.Json.Serialization.JsonPropertyName("phone")] string? Phone,
+        string? AvatarUrl);
+
+    [HttpPut("me")]
+    public async Task<IActionResult> UpdateMine(UpdateMyProfileRequest request, CancellationToken ct)
+    {
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        var row = await db.StaffAccounts.SingleOrDefaultAsync(s => s.UserId == userId, ct);
+        if (row is null) return NotFound();
+
+        var probe = new StaffAccount { FullName = request.FullName?.Trim() ?? "", ContactNumber = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim() };
+        if (Rules.Staff(probe).Result() is { } invalid) return invalid;
+        if (request.AvatarUrl is { Length: > 2000 }) return BadRequest(new { error = "invalid_request", detail = "avatar_url is too long." });
+
+        row.FullName = probe.FullName;
+        row.ContactNumber = probe.ContactNumber;
+        if (request.AvatarUrl is not null) row.AvatarUrl = string.IsNullOrWhiteSpace(request.AvatarUrl) ? null : request.AvatarUrl.Trim();
+
+        await db.SaveChangesAsync(ct);
+        return Ok(row);
+    }
+    //JJQR - END
+
     /// <summary>Editable fields per contract §10 (status, full_name, contact_number).</summary>
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, StaffAccount payload, CancellationToken ct)

@@ -4,8 +4,15 @@ using ClinicApp.Domain.Enums;
 namespace ClinicApp.Domain.Entities;
 
 /// <summary>Upsert conflict used by UI: booking_id (unique).</summary>
-public class Consultation : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class Consultation : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid ConsultationId { get; set; }
     public Guid BookingId { get; set; }
     public Guid PatientId { get; set; }
@@ -40,8 +47,15 @@ public class Consultation : IHasUpdatedAt
 
 /// <summary>§16.8 Form 2. One per consultation (upsert conflict key = consultation_id).
 /// Doctor license / PTR are read live from `doctors` at print time, not stored here.</summary>
-public class MedicalCertificate : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class MedicalCertificate : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid CertificateId { get; set; }
     public Guid ConsultationId { get; set; }
     public Guid PatientId { get; set; }
@@ -60,8 +74,15 @@ public class MedicalCertificate : IHasUpdatedAt
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-public class ConsultationDiagnosis
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class ConsultationDiagnosis : ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid Id { get; set; }
     public Guid ConsultationId { get; set; }
     public string? Icd10Code { get; set; }
@@ -82,8 +103,15 @@ public class VitalFieldTemplate
 }
 
 /// <summary>Conflict: (booking_id, template_id).</summary>
-public class PatientVitalReading : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class PatientVitalReading : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid Id { get; set; }
     public Guid BookingId { get; set; }
     public Guid PatientId { get; set; }
@@ -97,8 +125,15 @@ public class PatientVitalReading : IHasUpdatedAt
 }
 
 /// <summary>Conflict: consultation_id (unique). View v_pending_follow_ups exposes Id as follow_up_id.</summary>
-public class FollowUp : IHasUpdatedAt
+//JJQR - AI (Nov 21, 2026) cloud sync: class now implements ISyncTracked
+public class FollowUp : IHasUpdatedAt, ISyncTracked
+//JJQR - END
 {
+    //JJQR - AI (Nov 21, 2026) cloud sync columns (ISyncTracked)
+    public long RowVersion { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    //JJQR - END
     public Guid Id { get; set; }
     public Guid ConsultationId { get; set; }
     public Guid PatientId { get; set; }

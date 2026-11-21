@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Hubs;
 using ClinicApp.Api.Security;
@@ -17,7 +20,12 @@ public record CheckInWalkInRequest(
     VisitType? VisitType,
     bool? MedCertRequested,
     string? DiscountCategory,   // 'Senior' | 'PWD' | null
-    string? Notes);
+    string? Notes,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? BookingId = null,
+    Guid? PaymentId = null
+    //JJQR - END
+    );
 
 public record CancelQueueEntryRequest(string? Reason);
 
@@ -47,18 +55,55 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
         var settings = await db.ClinicSettings.SingleOrDefaultAsync(s => s.Id == 1, ct);
         if (settings is null) return BadRequest(new { message = "Clinic settings missing." });
 
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (ClientIds.Supplied(req.BookingId))
+        {
+            var dup = await db.Bookings.AsNoTracking().FirstOrDefaultAsync(b => b.BookingId == req.BookingId, ct);
+            if (dup is not null)
+            {
+                if (dup.PatientId != patient.PatientId) return ClientIds.Conflict();
+                var qn = dup.QueueNumber ?? "";
+                return Ok(new
+                {
+                    booking_id = dup.BookingId,
+                    queue_number = dup.QueueNumber,
+                    lane = QueueLane.IsPriority(qn) ? QueueLane.Priority : QueueLane.Regular,
+                    is_priority = QueueLane.IsPriority(qn),
+                    sequence = int.TryParse(new string(qn.Where(char.IsDigit).ToArray()), out var seqNo) ? seqNo : 0,
+                    patient_name = $"{patient.FirstName} {patient.LastName}".Trim(),
+                    patient_code = patient.PatientCode,
+                    doctor_name = doctor.StaffAccount?.FullName ?? "",
+                    clinic_name = settings.ClinicName,
+                    clinic_address = settings.Address,
+                    visit_type = dup.VisitType.ToString(),
+                    provisional_fee = dup.TotalFee,
+                    issued_at = dup.CreatedAt
+                });
+            }
+        }
+        if (await ClientIds.TakenAsync<Payment>(db, req.PaymentId, ct)) return ClientIds.Conflict();
+        //JJQR - END
+
         var now = DateTimeOffset.UtcNow;
         var today = ClinicClock.Today;           // §17.1 #3 — Asia/Manila, not UTC
         var arrival = ClinicClock.TimeNow;
         var visitType = req.VisitType ?? VisitType.New;
-        var discount = string.IsNullOrWhiteSpace(req.DiscountCategory) ? null : req.DiscountCategory.Trim();
+        //JJQR - AI (Nov 21, 2026) - only "Senior" or "PWD": any other text used to grant the discount AND the priority lane
+        if (!QueueLane.IsValidDiscount(req.DiscountCategory))
+            return BadRequest(new { message = "Discount must be Senior or PWD." });
+        var discount = QueueLane.NormalizeDiscount(req.DiscountCategory);
+        //JJQR - END
         var medCert = req.MedCertRequested ?? false;
         var fee = ClinicFees.Compute(settings, visitType, medCert, discount);
 
-        var queueNumber = await QueueSequencer.NextAsync(db, today, ct);
+        //JJQR - AI (Nov 21, 2026) - priority lane: Senior/PWD (discount picked, 60+, or ID on file) get an S- number, everyone else R-
+        var queueNumber = await QueueSequencer.NextForPatientAsync(db, today, patient.PatientId, discount, ct);
+        //JJQR - END
         var booking = new Booking
         {
-            BookingId = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            BookingId = ClientIds.Use(req.BookingId),
+            //JJQR - END
             PatientId = patient.PatientId,
             DoctorId = doctor.DoctorId,
             AppointmentDate = today,
@@ -82,7 +127,9 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
         db.Bookings.Add(booking);
         db.Payments.Add(new Payment
         {
-            PaymentId = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            PaymentId = ClientIds.Use(req.PaymentId),
+            //JJQR - END
             BookingId = booking.BookingId,
             Amount = fee.Total,
             Status = PaymentStatus.Unpaid,
@@ -105,6 +152,10 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
         {
             booking_id = booking.BookingId,
             queue_number = booking.QueueNumber,
+            //JJQR - AI (Nov 21, 2026) - lane for the ticket / slip
+            lane = QueueLane.IsPriority(queueNumber) ? QueueLane.Priority : QueueLane.Regular,
+            is_priority = QueueLane.IsPriority(queueNumber),
+            //JJQR - END
             sequence = int.Parse(new string(queueNumber.Where(char.IsDigit).ToArray())),
             patient_name = patientName,
             patient_code = patient.PatientCode,
@@ -126,13 +177,17 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
             .Where(b => b.AppointmentDate == day && b.QueueNumber != null
                 && b.Status != BookingStatus.Cancelled && b.Status != BookingStatus.Expired)
             .Include(b => b.Patient)
-            .OrderBy(b => b.CreatedAt)
+            //JJQR - AI (Nov 21, 2026) - seniors / PWD (S-) first, then first-come-first-served within each lane
+            .OrderBy(b => b.QueueNumber!.StartsWith(QueueLane.PriorityPrefix) ? 0 : 1)
+            .ThenBy(b => b.CreatedAt)
+            //JJQR - END
             .ToListAsync(ct);
 
         var items = rows.Select(b => new
         {
             booking_id = b.BookingId,
             queue_number = b.QueueNumber,
+            is_priority = QueueLane.IsPriority(b.QueueNumber), //JJQR - AI (Nov 21, 2026) - priority lane
             patient_id = b.PatientId,
             patient_name = b.Patient is null ? "" : $"{b.Patient.FirstName} {b.Patient.LastName}".Trim(),
             patient_code = b.Patient?.PatientCode ?? "",

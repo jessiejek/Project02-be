@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 // JJQR - AI (Nov 20, 2026) - PV-12/13/14: consent decisions, "download my data", correction/deletion requests (RA 10173 data-subject rights)
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Security;
@@ -12,7 +15,11 @@ using Microsoft.EntityFrameworkCore;
 namespace ClinicApp.Api.Controllers;
 
 public record ConsentDecisionRequest(string? Decision);
-public record DataRequestCreate(string? Kind, string? Details);
+public record DataRequestCreate(string? Kind, string? Details,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 public record DataRequestResolve(string? Status, string? Note);
 
 [ApiController]
@@ -143,9 +150,15 @@ public class PrivacyController(ClinicAppDbContext db, ActorResolver actors) : Co
         var open = await db.DataRequests.AnyAsync(r => r.PatientId == pid && r.Kind == kind && (r.Status == DataRequestStatus.Pending || r.Status == DataRequestStatus.Scheduled), ct);
         if (open) return Conflict(new { message = $"You already have an open {kind!.ToLowerInvariant()} request. We will update you when it is handled." });
 
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<DataRequest>(db, body.Id, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var req = new DataRequest
         {
-            Id = Guid.NewGuid(), PatientId = pid, Kind = kind!, Details = body.Details!.Trim(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            Id = ClientIds.Use(body.Id),
+            //JJQR - END
+            PatientId = pid, Kind = kind!, Details = body.Details!.Trim(),
             Status = DataRequestStatus.Pending, RequestedAt = DateTimeOffset.UtcNow,
         };
         if (kind == DataRequestKind.Deletion)

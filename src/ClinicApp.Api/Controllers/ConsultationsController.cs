@@ -1,10 +1,16 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Auditing;
+using ClinicApp.Api.Hubs; //JJQR - AI (Nov 21, 2026)
 using ClinicApp.Api.Security;
+using ClinicApp.Domain; //JJQR - AI (Nov 21, 2026) - PaymentStatusMachine
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR; //JJQR - AI (Nov 21, 2026)
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
@@ -28,16 +34,24 @@ public record UpsertConsultationRequest(
     // §16.6 Professional Fee decision. 'Charge' | 'Waive' | null (not yet decided).
     string? PfDecision = null,
     decimal? PfAmount = null,
-    string? PfWaiveReason = null);
+    string? PfWaiveReason = null,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? ConsultationId = null
+    //JJQR - END
+    );
 
-public record DiagnosisInput(string? Icd10Code, string? CustomDescription, DiagnosisType Type);
+public record DiagnosisInput(string? Icd10Code, string? CustomDescription, DiagnosisType Type,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 
 /// <summary>snake_case wire (contract §4). Consultation is 1:1 with a booking —
 /// upsert conflict key is booking_id. Diagnoses are replace-all per contract §10.</summary>
 [ApiController]
 [Authorize]
 [Route("api/consultations")]
-public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors) : ControllerBase
+public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors, IHubContext<ClinicHub> hub) : ControllerBase
 {
     // §6 embeds: bookings(appointment_date, doctor_id), doctors(staff_accounts(full_name)),
     // consultation_diagnoses(custom_description, type), follow_ups(follow_up_date, instructions).
@@ -112,6 +126,13 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         if (req.PatientId != ownerBooking.PatientId || req.DoctorId != ownerBooking.DoctorId)
             return BadRequest(new { message = "Patient / doctor do not match the booking." });
 
+        if (!ClinicApp.Domain.QueueLane.IsValidDiscount(req.DiscountCategory)) //JJQR - AI (Nov 21, 2026) - only Senior / PWD
+            return BadRequest(new { message = "Discount must be Senior or PWD." });
+        //JJQR - AI (Nov 21, 2026) - the doctor's Charge amount becomes what the front desk collects, so it must be a sane number (waiving is done with Waive, not a zero charge)
+        if (string.Equals(req.PfDecision?.Trim(), "Charge", StringComparison.Ordinal) && req.PfAmount is { } chargeAmount && (chargeAmount <= 0 || chargeAmount > 100_000m))
+            return BadRequest(new { message = "The professional fee to charge must be more than ₱0 and at most ₱100,000. To waive the fee, choose Waive." });
+        //JJQR - END
+
         var now = DateTimeOffset.UtcNow;
         var c = await db.Consultations.SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
         var isNew = c is null;
@@ -122,7 +143,10 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         };
         if (c is null)
         {
-            c = new Consultation { ConsultationId = Guid.NewGuid(), BookingId = bookingId, CreatedAt = now };
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            if (await ClientIds.TakenAsync<Consultation>(db, req.ConsultationId, ct)) return ClientIds.Conflict();
+            c = new Consultation { ConsultationId = ClientIds.Use(req.ConsultationId), BookingId = bookingId, CreatedAt = now };
+            //JJQR - END
             db.Consultations.Add(c);
         }
         else if (c.Status is ConsultationStatus.Completed or ConsultationStatus.Amended)
@@ -141,6 +165,31 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
             }
             // req.Status == Amended — allowed
         }
+
+        //JJQR - AI (Nov 21, 2026) - once the payment is settled, an amend must not silently contradict it: a fee that was waived cannot become a Charge, a paid fee cannot be waived, and a paid amount cannot be
+        // re-stated. Only a decision that was really REVERSED is refused (a visit with no stored decision, or the same decision, amends as before).
+        if (c is not null && c.PfDecision is not null && (req.Status == ConsultationStatus.Completed || req.Status == ConsultationStatus.Amended))
+        {
+            var settled = await db.Payments.AsNoTracking().SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
+            var newDecision = string.IsNullOrWhiteSpace(req.PfDecision) ? null : req.PfDecision.Trim();
+            if (settled is not null && settled.Status != PaymentStatus.Unpaid && !string.Equals(c.PfDecision, newDecision, StringComparison.Ordinal))
+            {
+                string? conflict = settled.Status switch
+                {
+                    PaymentStatus.Waived when newDecision == "Charge" =>
+                        "This visit's professional fee was already waived, so it can't be changed to Charge. Ask an admin if the patient should be billed.",
+                    PaymentStatus.Paid or PaymentStatus.Refunded when newDecision == "Waive" =>
+                        "This visit's professional fee was already paid, so it can't be waived. Refund the payment first.",
+                    _ => null
+                };
+                if (conflict is not null) return Conflict(new { message = conflict });
+            }
+            if (settled is not null && settled.Status == PaymentStatus.Paid && newDecision == "Charge"
+                && req.PfAmount is { } restated && restated != settled.Amount)
+                return Conflict(new { message = $"This visit's professional fee was already paid (₱{settled.Amount:0.##}), so the amount can't be changed to ₱{restated:0.##}." });
+        }
+        //JJQR - END
+
         c.PatientId = req.PatientId;
         c.DoctorId = req.DoctorId;
         c.Status = req.Status;
@@ -166,12 +215,14 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         // §16.6 — apply the doctor's fee-line choices to the booking and
         // recompute the flat clinic fee server-side.
         var booking = await db.Bookings.SingleOrDefaultAsync(b => b.BookingId == bookingId, ct);
+        Payment? pay = null; //JJQR - AI (Nov 21, 2026) - loaded once: used for the amount to collect and for the waive below
         if (booking is not null)
         {
+            pay = await db.Payments.SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
             if (req.VisitType is { } vt) booking.VisitType = vt;
             if (req.MedCertRequested is { } mc) booking.MedCertRequested = mc;
             if (req.DiscountCategory is not null)
-                booking.DiscountCategory = string.IsNullOrWhiteSpace(req.DiscountCategory) ? null : req.DiscountCategory.Trim();
+                booking.DiscountCategory = ClinicApp.Domain.QueueLane.NormalizeDiscount(req.DiscountCategory);
 
             var settings = await db.ClinicSettings.SingleOrDefaultAsync(s => s.Id == 1, ct);
             if (settings is not null)
@@ -180,11 +231,41 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
                     settings, booking.VisitType, booking.MedCertRequested, booking.DiscountCategory);
                 booking.ConsultationFeeSnapshot = fee.Subtotal;
                 booking.DiscountAmount = fee.DiscountAmount;
-                booking.TotalFee = fee.Total;
-                booking.AmountDue = fee.Total;
+                //JJQR - AI (Nov 21, 2026) - what the front desk collects = the doctor's Charge amount when one was set, otherwise the clinic fee. It used to be ALWAYS the clinic fee, so a
+                // doctor charging ₱300 still had ₱450 collected; and the payment's own amount (checked when staff record the payment) was never updated after check-in.
+                // Only while nothing has been settled: money already paid / waived / refunded is never rewritten.
+                var amountToCollect = c.PfDecision == "Charge" && c.PfAmount is { } doctorAmount ? doctorAmount : fee.Total;
+                if (pay is null || pay.Status == PaymentStatus.Unpaid)
+                {
+                    booking.TotalFee = amountToCollect;
+                    booking.AmountDue = amountToCollect;
+                    if (pay is not null) pay.Amount = amountToCollect;
+                }
+                //JJQR - END
                 booking.UpdatedAt = now;
             }
         }
+
+        //JJQR - AI (Nov 21, 2026) - the doctor's Waive decision used to be only a note on the consultation: the payment stayed "Unpaid", so the front desk was asked to collect the fee anyway.
+        // When the visit is FINALISED (Completed / Amended — never on a draft, because Waived cannot be undone) with a Waive decision and a reason, an unpaid payment is waived here.
+        Payment? waivedPayment = null;
+        if (booking is not null && c.PfDecision == "Waive" && !string.IsNullOrWhiteSpace(c.PfWaiveReason)
+            && (req.Status == ConsultationStatus.Completed || req.Status == ConsultationStatus.Amended))
+        {
+            if (pay is not null && pay.Status == PaymentStatus.Unpaid && PaymentStatusMachine.CanTransition(pay.Status, PaymentStatus.Waived))
+            {
+                pay.Status = PaymentStatus.Waived;
+                pay.WaivedReason = c.PfWaiveReason;
+                pay.WaivedByUserId = CurrentUserId();
+                pay.WaivedAt = now;
+                booking.AmountDue = 0;
+                booking.UpdatedAt = now;
+                AuditLogWriter.Add(db, AuditEntityType.Payment, pay.PaymentId, "Waived (doctor decision)", CurrentUserId(),
+                    "Professional fee waived on the doctor's decision when the visit was completed.");
+                waivedPayment = pay;
+            }
+        }
+        //JJQR - END
 
         var details = isNew
             ? AuditLogWriter.ChangedFields( // JJQR - AI (Nov 20, 2026) - PV-9: which fields, not their clinical text // JJQR - END
@@ -200,6 +281,15 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         AuditLogWriter.Add(db, AuditEntityType.Consultation, c.ConsultationId, req.Status.ToString(), CurrentUserId(), details);
 
         await db.SaveChangesAsync(ct);
+        //JJQR - AI (Nov 21, 2026) - tell the front desk (and the doctor's other screens) straight away that this visit no longer needs collecting
+        if (waivedPayment is not null)
+        {
+            var payload = new { booking_id = bookingId, payment_id = waivedPayment.PaymentId, status = waivedPayment.Status.ToString() };
+            await Task.WhenAll(
+                hub.Clients.Group("staff").SendAsync("PaymentUpdated", payload, ct),
+                hub.Clients.Group($"doctor:{c.DoctorId}").SendAsync("PaymentUpdated", payload, ct));
+        }
+        //JJQR - END
         return Ok(c);
     }
 
@@ -249,7 +339,9 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         {
             db.ConsultationDiagnoses.Add(new ConsultationDiagnosis
             {
-                Id = Guid.NewGuid(),
+                //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+                Id = await ClientIds.FreshAsync<ConsultationDiagnosis>(db, d.Id, ct),
+                //JJQR - END
                 ConsultationId = id,
                 Icd10Code = string.IsNullOrWhiteSpace(d.Icd10Code) ? null : d.Icd10Code,
                 CustomDescription = string.IsNullOrWhiteSpace(d.CustomDescription) ? null : d.CustomDescription,
@@ -282,7 +374,7 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         var pfReason = pfDecision == "Waive" ? (string.IsNullOrWhiteSpace(req.PfWaiveReason) ? null : req.PfWaiveReason.Trim()) : null;
 
         var discount = req.DiscountCategory is null ? booking.DiscountCategory
-            : string.IsNullOrWhiteSpace(req.DiscountCategory) ? null : req.DiscountCategory.Trim();
+            : ClinicApp.Domain.QueueLane.NormalizeDiscount(req.DiscountCategory);
 
         return Eq(c.ChiefComplaint, req.ChiefComplaint) && Eq(c.Subjective, req.Subjective)
             && Eq(c.Objective, req.Objective) && Eq(c.Assessment, req.Assessment)

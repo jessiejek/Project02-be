@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Validation;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
@@ -25,7 +28,10 @@ public class AnnouncementsController(ClinicAppDbContext db) : ControllerBase
     {
         if (Rules.Announcement(payload).Result() is { } invalid) return invalid; // JJQR - AI (Nov 20, 2026) - B-01
         var now = DateTimeOffset.UtcNow;
-        payload.Id = Guid.NewGuid();
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<Announcement>(db, payload.Id, ct)) return ClientIds.Conflict();
+        payload.Id = ClientIds.Use(payload.Id);
+        //JJQR - END
         payload.PostedByUserId = CurrentUserId();
         payload.CreatedAt = now;
         payload.UpdatedAt = now;

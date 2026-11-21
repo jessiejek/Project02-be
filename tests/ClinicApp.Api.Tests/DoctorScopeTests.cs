@@ -129,6 +129,10 @@ public class DoctorScopeTests(ApiFixture api) : ApiTestBase(api)
             Add(BookingStatus.Completed, PaymentStatus.Paid, 300, null);   // legacy: falls back to amount
             Add(BookingStatus.Completed, PaymentStatus.Unpaid, 450, null);
             Add(BookingStatus.NoShow, PaymentStatus.Unpaid, 450, null);
+            //JJQR - AI (Nov 21, 2026) - a cancelled booking keeps an "Unpaid" payment row, but nothing is owed
+            Add(BookingStatus.Cancelled, PaymentStatus.Unpaid, 450, null);
+            Add(BookingStatus.Rescheduled, PaymentStatus.Unpaid, 450, null); //JJQR - AI (Nov 21, 2026) - a rescheduled booking owes nothing either
+            //JJQR - END
             Add(BookingStatus.Completed, PaymentStatus.Refunded, 450, 450); // refunded is not Paid → not revenue
             await db.SaveChangesAsync();
             return 0;
@@ -138,10 +142,12 @@ public class DoctorScopeTests(ApiFixture api) : ApiTestBase(api)
         var rows = await ListOf(await me.GetAsync("/api/reports/daily-booking-summary"));
         var row = Assert.Single(rows);
         Assert.Equal(today.ToString("yyyy-MM-dd"), row.GetProperty("appointment_date").GetString());
-        Assert.Equal(5, row.GetProperty("total_bookings").GetInt32());
+        Assert.Equal(7, row.GetProperty("total_bookings").GetInt32());
         Assert.Equal(4, row.GetProperty("completed_count").GetInt32());
         Assert.Equal(2, row.GetProperty("paid_count").GetInt32());
-        Assert.Equal(2, row.GetProperty("unpaid_count").GetInt32());
+        //JJQR - AI (Nov 21, 2026) - only the completed unpaid visit is unpaid; the no-show and the cancelled booking owe nothing
+        Assert.Equal(1, row.GetProperty("unpaid_count").GetInt32());
+        //JJQR - END
         Assert.Equal(1, row.GetProperty("no_show_count").GetInt32());
         Assert.Equal(800m, row.GetProperty("revenue").GetDecimal());
 

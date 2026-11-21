@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
@@ -8,11 +11,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
 
-public record SoapPhraseInput(SoapField Field, string Label, string Body);
+public record SoapPhraseInput(SoapField Field, string Label, string Body,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 //JJQR - AI (Nov 19, 2026) - ids in the order the doctor wants them (phrases / favorites reorder)
 public record OrderInput(List<Guid> Ids);
 //JJQR - END
-public record SoapTemplateInput(string Title, bool IsSystemTemplate, string? ChiefComplaint, string? Subjective, string? Objective, string? Assessment, string? Plan);
+public record SoapTemplateInput(string Title, bool IsSystemTemplate, string? ChiefComplaint, string? Subjective, string? Objective, string? Assessment, string? Plan,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 
 /// <summary>soap_phrases / soap_templates (contract §4) — doctor SOAP quick-insert tooling.</summary>
 [ApiController]
@@ -67,9 +78,15 @@ public class SoapController(ClinicAppDbContext db, ActorResolver actors, BuiltIn
         var last = await db.SoapPhrases.Where(x => x.DoctorId == doctorId && x.Field == input.Field).MaxAsync(x => (int?)x.SortOrder, ct) ?? 0;
         //JJQR - END
         var now = DateTimeOffset.UtcNow;
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<SoapPhrase>(db, input.Id, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var p = new SoapPhrase
         {
-            Id = Guid.NewGuid(), DoctorId = doctorId, Field = input.Field,
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            Id = ClientIds.Use(input.Id),
+            //JJQR - END
+            DoctorId = doctorId, Field = input.Field,
             Label = input.Label.Trim(), Body = input.Body.Trim(), SortOrder = last + 1, CreatedAt = now, UpdatedAt = now
         };
         db.SoapPhrases.Add(p);
@@ -140,9 +157,15 @@ public class SoapController(ClinicAppDbContext db, ActorResolver actors, BuiltIn
         if (!actor.ActsAsDoctor(doctorId)) return Forbid();
         if (input.IsSystemTemplate && !actor.IsAdmin) return Forbid(); // system templates are Admin-managed
         var now = DateTimeOffset.UtcNow;
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<SoapTemplate>(db, input.Id, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var t = new SoapTemplate
         {
-            Id = Guid.NewGuid(), DoctorId = doctorId, Title = input.Title, IsSystemTemplate = input.IsSystemTemplate,
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            Id = ClientIds.Use(input.Id),
+            //JJQR - END
+            DoctorId = doctorId, Title = input.Title, IsSystemTemplate = input.IsSystemTemplate,
             ChiefComplaint = input.ChiefComplaint, Subjective = input.Subjective, Objective = input.Objective,
             Assessment = input.Assessment, Plan = input.Plan, CreatedAt = now, UpdatedAt = now
         };

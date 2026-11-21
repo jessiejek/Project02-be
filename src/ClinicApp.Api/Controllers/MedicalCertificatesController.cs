@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
@@ -18,7 +21,11 @@ public record UpsertMedicalCertificateRequest(
     string? DiagnosisText,
     string? Recommendations,
     string? PurposeException,
-    DateOnly? ComeBackOn);
+    DateOnly? ComeBackOn,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? CertificateId = null
+    //JJQR - END
+    );
 
 /// <summary>medical_certificates (§16.8 Form 2). One per consultation — upsert
 /// conflict key is consultation_id. Doctor license / PTR are read live from
@@ -95,7 +102,10 @@ public class MedicalCertificatesController(ClinicAppDbContext db, ActorResolver 
         var m = await db.MedicalCertificates.SingleOrDefaultAsync(x => x.ConsultationId == consultationId, ct);
         if (m is null)
         {
-            m = new MedicalCertificate { CertificateId = Guid.NewGuid(), ConsultationId = consultationId, CreatedAt = now };
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            if (await ClientIds.TakenAsync<MedicalCertificate>(db, req.CertificateId, ct)) return ClientIds.Conflict();
+            m = new MedicalCertificate { CertificateId = ClientIds.Use(req.CertificateId), ConsultationId = consultationId, CreatedAt = now };
+            //JJQR - END
             db.MedicalCertificates.Add(m);
         }
         m.PatientId = req.PatientId;

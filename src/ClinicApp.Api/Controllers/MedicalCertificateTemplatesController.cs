@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
@@ -8,7 +11,11 @@ using Microsoft.EntityFrameworkCore;
 namespace ClinicApp.Api.Controllers;
 
 public record MedicalCertificateTemplateInput(
-    string Title, bool IsSystemTemplate, string? DiagnosisText, string? Recommendations, string? PurposeException);
+    string Title, bool IsSystemTemplate, string? DiagnosisText, string? Recommendations, string? PurposeException,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? Id = null
+    //JJQR - END
+    );
 
 /// <summary>medical_certificate_templates — canned "reason for the cert" text a
 /// doctor reuses across §16.8 Form 2 issuances. Same shape/permissions as
@@ -51,9 +58,15 @@ public class MedicalCertificateTemplatesController(ClinicAppDbContext db, ActorR
         if (!actor.ActsAsDoctor(doctorId)) return Forbid();
         if (input.IsSystemTemplate && !actor.IsAdmin) return Forbid();
         var now = DateTimeOffset.UtcNow;
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<MedicalCertificateTemplate>(db, input.Id, ct)) return ClientIds.Conflict();
+        //JJQR - END
         var t = new MedicalCertificateTemplate
         {
-            Id = Guid.NewGuid(),
+            //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+            Id = ClientIds.Use(input.Id),
+            //JJQR - END
+
             DoctorId = doctorId,
             Title = input.Title,
             IsSystemTemplate = input.IsSystemTemplate,

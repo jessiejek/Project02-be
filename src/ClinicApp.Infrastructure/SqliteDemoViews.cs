@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Infrastructure;
 
-/// <summary>SQLite-syntax equivalents of the 4 reporting views created via raw T-SQL in the
+/// <summary>SQLite-syntax equivalents of the 5 reporting views created via raw T-SQL in the
 /// SQL Server migration (Migrations/20260907114641_InitialCreate.cs) — ported from
 /// supabase/schema.sql lines 830-886, using SQLite's `||` concat and `SUM(CASE WHEN...)` instead
 /// of SQL Server's `+`. Demo/local (SQLite) path only; the SQL Server migration is unaffected and
@@ -57,7 +57,7 @@ SELECT
   COUNT(*) AS total_bookings,
   SUM(CASE WHEN b.status = 'Completed' THEN 1 ELSE 0 END) AS completed_count,
   SUM(CASE WHEN pay.status = 'Paid' THEN 1 ELSE 0 END) AS paid_count,
-  SUM(CASE WHEN pay.status = 'Unpaid' THEN 1 ELSE 0 END) AS unpaid_count,
+  SUM(CASE WHEN pay.status = 'Unpaid' AND b.status NOT IN ('Cancelled', 'NoShow', 'Expired', 'Rescheduled') THEN 1 ELSE 0 END) AS unpaid_count,
   SUM(CASE WHEN b.status = 'NoShow' THEN 1 ELSE 0 END) AS no_show_count,
   COALESCE(SUM(CASE WHEN pay.status = 'Paid' THEN COALESCE(pay.amount_received, pay.amount) ELSE 0 END), 0) AS revenue
 FROM bookings b
@@ -74,5 +74,22 @@ SELECT
 FROM doctors d
 LEFT JOIN reviews r ON r.doctor_id = d.doctor_id
 GROUP BY d.doctor_id;");
+
+        //JJQR - AI (Nov 21, 2026) - v_doctor_earnings was only created by the SQL Server migration (Phase95FixEarningsViewCollectedAmount), so on SQLite (demo / tests / desktop node) the earnings report had no view. Same definition; substr(...,1,7) replaces CONVERT(char(7), date, 126).
+        db.Database.ExecuteSqlRaw("DROP VIEW IF EXISTS v_doctor_earnings;");
+        db.Database.ExecuteSqlRaw(@"
+CREATE VIEW v_doctor_earnings AS
+SELECT
+  b.doctor_id,
+  substr(b.appointment_date, 1, 7) AS period,
+  COUNT(DISTINCT b.booking_id) AS completed_visits,
+  COALESCE(SUM(b.total_fee), 0) AS gross_billed,
+  COALESCE(SUM(CASE WHEN pay.status = 'Paid' THEN COALESCE(pay.amount_received, pay.amount) ELSE 0 END), 0) AS collected,
+  COALESCE(SUM(CASE WHEN pay.status = 'Waived' THEN b.total_fee ELSE 0 END), 0) AS waived
+FROM bookings b
+LEFT JOIN payments pay ON pay.booking_id = b.booking_id
+WHERE b.status = 'Completed'
+GROUP BY b.doctor_id, substr(b.appointment_date, 1, 7);");
+        //JJQR - END
     }
 }

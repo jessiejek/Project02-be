@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Domain.Entities;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -29,7 +32,10 @@ public class ServicesController(ClinicAppDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult<Service>> Create(Service payload, CancellationToken ct)
     {
-        payload.ServiceId = Guid.NewGuid();
+        //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+        if (await ClientIds.TakenAsync<Service>(db, payload.ServiceId, ct)) return ClientIds.Conflict();
+        payload.ServiceId = ClientIds.Use(payload.ServiceId);
+        //JJQR - END
         payload.CreatedAt = DateTimeOffset.UtcNow;
         payload.UpdatedAt = payload.CreatedAt;
         db.Services.Add(payload);

@@ -1,3 +1,6 @@
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Api.Validation;
 using ClinicApp.Api.Security;
 using ClinicApp.Domain.Entities;
@@ -17,7 +20,11 @@ public record LabOrderInput(
     string TestName,
     string? ClinicalIndication,
     string? SpecimenType,
-    string? Notes);
+    string? Notes,
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    Guid? LabOrderId = null
+    //JJQR - END
+    );
 
 /// <summary>lab_orders (§16.8 Form 3). A consultation's lab request is a
 /// replace-all set keyed on consultation_id, same shape as
@@ -106,7 +113,9 @@ public class LabOrdersController(ClinicAppDbContext db, ActorResolver actors) : 
             if (string.IsNullOrWhiteSpace(o.TestName)) continue;
             db.LabOrders.Add(new LabOrder
             {
-                LabOrderId = Guid.NewGuid(),
+                //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+                LabOrderId = await ClientIds.FreshAsync<LabOrder>(db, o.LabOrderId, ct),
+                //JJQR - END
                 ConsultationId = consultationId,
                 PatientId = consult.PatientId,
                 DoctorId = consult.DoctorId,

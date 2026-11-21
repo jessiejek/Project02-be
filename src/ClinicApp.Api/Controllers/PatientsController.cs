@@ -1,6 +1,9 @@
 using ClinicApp.Api.Validation;
 using ClinicApp.Api.Auditing;
 using ClinicApp.Api.Security;
+//JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+using ClinicApp.Api.Sync;
+//JJQR - END
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
@@ -88,6 +91,39 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         return Ok(patient);
     }
 
+    //JJQR - AI (21 Nov 2026) desktop: data for the printed patient card. Read-only, identity + allergy names only (no clinical notes).
+    [Authorize(Roles = "Admin,Staff,Doctor")]
+    [HttpGet("{id:guid}/card")]
+    public async Task<IActionResult> Card(Guid id, CancellationToken ct)
+    {
+        var patient = await db.Patients.AsNoTracking().Include(p => p.Allergies).SingleOrDefaultAsync(p => p.PatientId == id, ct);
+        if (patient is null) return NotFound();
+        await AccessLog.RecordAsync(db, await actors.ResolveAsync(User, ct), id, "Patient card", ct);
+
+        var clinic = await db.ClinicSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+        var allergies = patient.Allergies.OrderBy(a => a.Allergen)
+            .Select(a => a.IsNkda ? "NKDA" : a.Allergen).Where(a => !string.IsNullOrWhiteSpace(a)).Distinct().ToList();
+        var hasEmergency = !string.IsNullOrWhiteSpace(patient.EmergencyContactName) || !string.IsNullOrWhiteSpace(patient.EmergencyContactNumber);
+
+        return Ok(new
+        {
+            patient_id = patient.PatientId,
+            patient_code = patient.PatientCode,
+            full_name = string.Join(" ", new[] { patient.FirstName, patient.MiddleName, patient.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))),
+            birth_date = patient.DateOfBirth.ToString("yyyy-MM-dd"),
+            sex = patient.Sex.ToString(),
+            blood_type = patient.BloodType,
+            allergies,
+            emergency_contact = hasEmergency
+                ? new { name = patient.EmergencyContactName, phone = patient.EmergencyContactNumber, relationship = patient.EmergencyContactRelationship }
+                : null,
+            clinic_name = clinic?.ClinicName ?? "",
+            clinic_phone = clinic?.ContactNumber,
+            issued_at = DateTimeOffset.UtcNow,
+        });
+    }
+    //JJQR - END
+
     /// <summary>Create a patient record (guest / staff quick-register). No auth
     /// account is linked here — contract §9 keeps that a separate layer.</summary>
     [Authorize(Roles = "Admin,Staff,Doctor")]
@@ -161,7 +197,18 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
             .ToListAsync(ct));
     }
 
-    public record PatientAllergyInput(string Allergen, string? Reaction, string? Severity, bool IsNkda);
+    //JJQR - AI (Nov 21, 2026) client-supplied row id (offline sync)
+    public record PatientAllergyInput(string Allergen, string? Reaction, string? Severity, bool IsNkda, Guid? Id = null);
+    //JJQR - END
+
+    //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
+    private async Task<Guid> NewAllergyIdAsync(Guid? requested, HashSet<Guid> used, CancellationToken ct)
+    {
+        var id = await ClientIds.FreshAsync<PatientAllergy>(db, requested, ct);
+        if (!used.Add(id)) { id = Guid.NewGuid(); used.Add(id); }
+        return id;
+    }
+    //JJQR - END
 
     /// <summary>Replace all allergy rows for a patient (including NKDA sentinel rows).</summary>
     [Authorize(Roles = "Admin,Staff,Doctor")]
@@ -169,20 +216,25 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     public async Task<ActionResult<List<PatientAllergy>>> ReplaceAllergies(Guid id, [FromBody] List<PatientAllergyInput> payload, CancellationToken ct)
     {
         if (!(await actors.ResolveAsync(User, ct)).CanAccessPatient(id)) return NotFound();
-        if (!await db.Patients.AnyAsync(p => p.PatientId == id, ct)) return NotFound();
+        //JJQR - AI (Nov 21, 2026) cloud sync: allergies belong to the patient document, so touching them bumps the patient's row_version
+        var patientRow = await db.Patients.FirstOrDefaultAsync(p => p.PatientId == id, ct);
+        if (patientRow is null) return NotFound();
+        patientRow.UpdatedAt = DateTimeOffset.UtcNow;
+        //JJQR - END
 
         var existing = await db.PatientAllergies.Where(a => a.PatientId == id).ToListAsync(ct);
         db.PatientAllergies.RemoveRange(existing);
 
         var now = DateTimeOffset.UtcNow;
         var rows = new List<PatientAllergy>();
+        var usedIds = new HashSet<Guid>(); //JJQR - AI (Nov 21, 2026) client-supplied ids must be unique within the list // JJQR - END
         foreach (var item in payload ?? [])
         {
             if (item.IsNkda)
             {
                 rows.Add(new PatientAllergy
                 {
-                    Id = Guid.NewGuid(), PatientId = id, Allergen = "NKDA", IsNkda = true,
+                    Id = await NewAllergyIdAsync(item.Id, usedIds, ct), PatientId = id, Allergen = "NKDA", IsNkda = true, //JJQR - AI (Nov 21, 2026) client-supplied id // JJQR - END
                     CreatedAt = now, UpdatedAt = now,
                 });
                 continue;
@@ -190,7 +242,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
             if (string.IsNullOrWhiteSpace(item.Allergen)) continue;
             rows.Add(new PatientAllergy
             {
-                Id = Guid.NewGuid(),
+                Id = await NewAllergyIdAsync(item.Id, usedIds, ct), //JJQR - AI (Nov 21, 2026) client-supplied id // JJQR - END
                 PatientId = id,
                 Allergen = item.Allergen.Trim(),
                 Reaction = string.IsNullOrWhiteSpace(item.Reaction) ? null : item.Reaction.Trim(),
