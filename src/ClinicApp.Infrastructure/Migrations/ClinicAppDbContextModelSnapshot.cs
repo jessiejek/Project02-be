@@ -2900,6 +2900,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("assessment");
 
+                    b.Property<string>("Category")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("category");
+
                     b.Property<string>("ChiefComplaint")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("chief_complaint");

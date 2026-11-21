@@ -254,7 +254,7 @@ public static class DevDataSeeder
         {
             (G("b1111111-1111-4111-8111-111111111101"), "Upper respiratory infection",
             [
-                (G("22222222-0000-0000-0000-000000000001"), "500mg", "20", "PO 1 tab q6h PRN fever/pain x 5 days"),
+                (G("22222222-0000-0000-0000-000000000001"), "500mg", "20", "Take 1 tablet by mouth every 6 hours as needed for fever or pain, for 5 days."),
                 (G("22222222-0000-0000-0000-000000000006"), "10mg", "10", "PO 1 tab OD x 10 days"),
             ]),
             (G("b1111111-1111-4111-8111-111111111102"), "Hypertension follow-up",
@@ -271,7 +271,7 @@ public static class DevDataSeeder
             (G("b1111111-1111-4111-8111-111111111106"), "Annual physical / check-up",
             [(G("22222222-0000-0000-0000-000000000010"), "500mg", "30", "PO 1 tab OD x 30 days")]),
             (G("b1111111-1111-4111-8111-111111111107"), "Fever work-up",
-            [(G("22222222-0000-0000-0000-000000000001"), "500mg", "20", "PO 1 tab q6h PRN fever x 5 days")]),
+            [(G("22222222-0000-0000-0000-000000000001"), "500mg", "20", "Take 1 tablet by mouth every 6 hours as needed for fever, for 5 days.")]),
             (G("b1111111-1111-4111-8111-111111111108"), "Prenatal check-up",
             [
                 (G("22222222-0000-0000-0000-000000000018"), "—", "30", "PO 1 tab OD x 30 days"),

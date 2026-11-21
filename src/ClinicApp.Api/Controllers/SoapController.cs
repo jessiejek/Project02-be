@@ -21,8 +21,9 @@ public record OrderInput(List<Guid> Ids);
 //JJQR - END
 public record SoapTemplateInput(string Title, bool IsSystemTemplate, string? ChiefComplaint, string? Subjective, string? Objective, string? Assessment, string? Plan,
     //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
-    Guid? Id = null
+    Guid? Id = null,
     //JJQR - END
+    string? Category = null //JJQR - AI (Nov 21, 2026) - "Adult" | "Pedia" | null //JJQR - END
     );
 
 /// <summary>soap_phrases / soap_templates (contract §4) — doctor SOAP quick-insert tooling.</summary>
@@ -150,12 +151,25 @@ public class SoapController(ClinicAppDbContext db, ActorResolver actors, BuiltIn
         return Ok(await q.OrderBy(t => t.Title).ToListAsync(ct));
     }
 
+    //JJQR - AI (Nov 21, 2026) - empty = no group chosen; otherwise exactly Adult or Pedia
+    private static bool TryCategory(string? raw, out string? category)
+    {
+        category = null;
+        if (string.IsNullOrWhiteSpace(raw)) return true;
+        var v = raw.Trim();
+        if (string.Equals(v, "Adult", StringComparison.OrdinalIgnoreCase)) { category = "Adult"; return true; }
+        if (string.Equals(v, "Pedia", StringComparison.OrdinalIgnoreCase)) { category = "Pedia"; return true; }
+        return false;
+    }
+    //JJQR - END
+
     [HttpPost("soap-templates")]
     public async Task<ActionResult<SoapTemplate>> CreateTemplate([FromQuery] Guid doctorId, SoapTemplateInput input, CancellationToken ct)
     {
         var actor = await actors.ResolveAsync(User, ct);
         if (!actor.ActsAsDoctor(doctorId)) return Forbid();
         if (input.IsSystemTemplate && !actor.IsAdmin) return Forbid(); // system templates are Admin-managed
+        if (!TryCategory(input.Category, out var category)) return BadRequest(new { message = "Category must be Adult or Pedia." });
         var now = DateTimeOffset.UtcNow;
         //JJQR - AI (Nov 21, 2026) client-supplied id (offline sync)
         if (await ClientIds.TakenAsync<SoapTemplate>(db, input.Id, ct)) return ClientIds.Conflict();
@@ -167,7 +181,7 @@ public class SoapController(ClinicAppDbContext db, ActorResolver actors, BuiltIn
             //JJQR - END
             DoctorId = doctorId, Title = input.Title, IsSystemTemplate = input.IsSystemTemplate,
             ChiefComplaint = input.ChiefComplaint, Subjective = input.Subjective, Objective = input.Objective,
-            Assessment = input.Assessment, Plan = input.Plan, CreatedAt = now, UpdatedAt = now
+            Assessment = input.Assessment, Plan = input.Plan, Category = category, CreatedAt = now, UpdatedAt = now
         };
         db.SoapTemplates.Add(t);
         await db.SaveChangesAsync(ct);
@@ -181,7 +195,9 @@ public class SoapController(ClinicAppDbContext db, ActorResolver actors, BuiltIn
         if (t is null) return NotFound();
         var actor = await actors.ResolveAsync(User, ct);
         if (!actor.ActsAsDoctor(t.DoctorId) || ((t.IsSystemTemplate || input.IsSystemTemplate) && !actor.IsAdmin)) return Forbid();
+        if (!TryCategory(input.Category, out var newCategory)) return BadRequest(new { message = "Category must be Adult or Pedia." });
         t.Title = input.Title;
+        t.Category = newCategory;
         t.IsSystemTemplate = input.IsSystemTemplate;
         t.ChiefComplaint = input.ChiefComplaint;
         t.Subjective = input.Subjective;

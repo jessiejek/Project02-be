@@ -201,6 +201,9 @@ public class SoapTemplate : IHasUpdatedAt
     public string? Assessment { get; set; }
     public string? Plan { get; set; }
     //JJQR - AI (Nov 20, 2026) A2
+    //JJQR - AI (Nov 21, 2026) - which patients this template is for: "Adult" or "Pedia" (family medicine). Null = not chosen yet (the app falls back to the title).
+    public string? Category { get; set; }
+    //JJQR - END
     public string? SourceBuiltinKey { get; set; }
     //JJQR - END
     public DateTimeOffset CreatedAt { get; set; }
