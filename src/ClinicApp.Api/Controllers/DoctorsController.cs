@@ -118,7 +118,9 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
 
     //JJQR - AI (21 Nov 2026) desktop: a doctor edits their own bio only (fee, slots, limits, license/PTR/S2 stay Admin-only on PUT {id})
     //JJQR - AI (Nov 22, 2026) - the doctor also keeps their own License / PTR / S2 numbers (printed on prescriptions and certificates); null = leave as is, "" = clear //JJQR - END
-    public sealed record UpdateMyBioRequest(string? Bio, string? LicenseNumber = null, string? PtrNumber = null, string? S2Number = null);
+    //JJQR - AI (Nov 22, 2026) - owner: the doctor may change their OWN professional / consultation fee (ConsultationFee; null = leave as is). Only their own row can be reached (this is /me); name, specialization, slots and limits stay Admin-only. Applies to NEW bookings only.
+    public sealed record UpdateMyBioRequest(string? Bio, string? LicenseNumber = null, string? PtrNumber = null, string? S2Number = null, decimal? ConsultationFee = null);
+    //JJQR - END
 
     static string? Pick(string? sent, string? current) => sent is null ? current : string.IsNullOrWhiteSpace(sent) ? null : sent.Trim();
 
@@ -137,7 +139,7 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
         // Reuse Rules.Doctor on a copy (existing values + the new bio) so the bio limit is the same one Admin edits use.
         var probe = new Doctor
         {
-            Specialization = doctor.Specialization, ConsultationFee = doctor.ConsultationFee, Bio = bio,
+            Specialization = doctor.Specialization, ConsultationFee = request.ConsultationFee ?? doctor.ConsultationFee, Bio = bio,
             LicenseNumber = Pick(request.LicenseNumber, doctor.LicenseNumber), PtrNumber = Pick(request.PtrNumber, doctor.PtrNumber), S2Number = Pick(request.S2Number, doctor.S2Number),
             SlotDurationMinutes = doctor.SlotDurationMinutes, SlotCapacity = doctor.SlotCapacity, DailyPatientLimit = doctor.DailyPatientLimit,
         };
@@ -145,6 +147,13 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
 
         doctor.Bio = bio;
         doctor.LicenseNumber = probe.LicenseNumber; doctor.PtrNumber = probe.PtrNumber; doctor.S2Number = probe.S2Number;
+        //JJQR - AI (Nov 22, 2026) - own fee change: audited (old and new amount, who), no patient data
+        if (request.ConsultationFee is { } newFee && newFee != doctor.ConsultationFee)
+        {
+            ClinicApp.Api.Auditing.AuditLogWriter.Add(db, ClinicApp.Domain.Enums.AuditEntityType.Doctor, doctor.DoctorId, "OwnFeeChanged", userId, $"consultation_fee {doctor.ConsultationFee:0.##} -> {newFee:0.##}");
+            doctor.ConsultationFee = newFee;
+        }
+        //JJQR - END
         await db.SaveChangesAsync(ct);
         return Ok(doctor);
     }
