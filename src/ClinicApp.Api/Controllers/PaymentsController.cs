@@ -113,12 +113,21 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         return await CanReadAsync(payment.BookingId, ct) ? Ok(payment) : NotFound();
     }
 
-    [Authorize(Roles = "Admin,Staff")]
+    //JJQR - AI (Nov 22, 2026) - offline-mode plan step 2.4 (owner Q3): the doctor may also mark a payment received (in Offline mode the clinic runs under the doctor's account alone, and Online too), typing the booklet receipt number.
+    // A doctor can confirm only payments of their OWN visits (same rule as waive). Everything else about confirm is unchanged, including the duplicate-receipt-number refusal.
+    [Authorize(Roles = "Admin,Staff,Doctor")]
     [HttpPost("{id:guid}/confirm")]
     public async Task<IActionResult> Confirm(Guid id, ConfirmPaymentRequest request, CancellationToken ct)
     {
         var payment = await db.Payments.SingleOrDefaultAsync(p => p.PaymentId == id, ct);
         if (payment is null) return NotFound();
+        var confirmActor = await actors.ResolveAsync(User, ct);
+        if (confirmActor.IsDoctor)
+        {
+            var owner = await db.Bookings.AsNoTracking().Where(b => b.BookingId == payment.BookingId).Select(b => b.DoctorId).SingleAsync(ct);
+            if (!confirmActor.ActsAsDoctor(owner)) return Forbid();
+        }
+        //JJQR - END
 
         //JJQR - AI (Nov 21, 2026) - never collect against a stale record: first make the payment follow the doctor's finalised fee decision. A visit the doctor waived cannot be paid,
         // and the amount staff are checked against is the doctor's charge amount.
