@@ -327,6 +327,20 @@ app.MapHub<ClinicHub>("/hubs/clinic");
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }))
     .DisableRateLimiting();
 
+//JJQR - AI (Nov 22, 2026) - offline-mode plan step 0.2: "is the API up AND is the database answering?" for the desktop's connection monitor.
+// Anonymous, no rate limit (it is polled every few seconds), and the database check gives up after 2 s (/api/version took ~14 s when the database was down).
+// 200 {status:"ok", db_ok:true, ...} when ready; 503 {status:"degraded", db_ok:false, ...} when the database does not answer in time.
+app.MapGet("/health/ready", async (IServiceScopeFactory scopes, IWebHostEnvironment env, CancellationToken ct) =>
+{
+    var (dbOk, dbMs) = await ClinicApp.Api.Middleware.DbReadyProbe.CheckAsync(scopes, TimeSpan.FromSeconds(2), ct);
+    var version = "?";
+    var versionFile = Path.Combine(env.ContentRootPath, "version.txt");
+    if (File.Exists(versionFile)) version = (await File.ReadAllLinesAsync(versionFile, ct)).FirstOrDefault()?.Trim() ?? "?";
+    var body = new { status = dbOk ? "ok" : "degraded", db_ok = dbOk, db_ms = dbMs, server_time = DateTimeOffset.UtcNow, version };
+    return Results.Json(body, statusCode: dbOk ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
+}).DisableRateLimiting();
+//JJQR - END
+
 app.Run();
 
 /// <summary>Exposes the entry point to the integration test project (WebApplicationFactory).</summary>
