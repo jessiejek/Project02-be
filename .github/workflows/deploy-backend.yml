@@ -9,7 +9,12 @@ name: Deploy backend
 on:
   push:
     branches: [main]
-  workflow_dispatch: {} # lets you re-trigger a deploy without a new commit
+  workflow_dispatch: # lets you re-trigger a deploy without a new commit
+    inputs:
+      allow_destructive_db:
+        description: "Allow a database update that DROPS tables or columns (take a backup first!)"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-backend
@@ -29,6 +34,21 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+
+      #JJQR - AI (Nov 22, 2026) - owner: one push does everything. The database is brought up to date FIRST (only what is missing, never destructive unless allowed on purpose).
+      # If this step fails, the deploy stops here and the live site keeps running the old code on the old database.
+      - name: Install database tools
+        run: |
+          brew install sqlcmd
+          dotnet tool install --global dotnet-ef --version "10.*"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Update database (only what is missing)
+        env:
+          DB_PASS: ${{ secrets.DB_PASS }}
+          ALLOW_DESTRUCTIVE: ${{ inputs.allow_destructive_db && 'true' || 'false' }}
+        run: bash deploy/migrate-db.sh
+      #JJQR - END
 
       - name: Publish + FTP deploy
         env:
