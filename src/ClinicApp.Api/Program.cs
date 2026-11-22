@@ -157,6 +157,15 @@ builder.Services.AddSignalR();
 var rl = builder.Configuration.GetSection("RateLimiting");
 var globalPerMinute = rl.GetValue<int?>("GlobalPermitPerMinute") ?? 300;
 var authPerMinute = rl.GetValue<int?>("AuthPermitPerMinute") ?? 10;
+//JJQR - AI (Nov 22, 2026) - on the live host (IIS in front of Kestrel) every request arrived from 127.0.0.1, so ALL users shared ONE rate-limit bucket (300 calls a minute, and only 10 sign-ins a minute for everybody) and the web dashboard got 429s.
+// Trust the proxy's X-Forwarded-For so each real client has its own bucket. Safe here: Kestrel is only reachable through IIS on this host.
+builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+    o.KnownIPNetworks.Clear();
+    o.KnownProxies.Clear();
+});
+//JJQR - END
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -312,6 +321,7 @@ app.UseHttpsRedirection();
 // and `GET /api/patient-lab-results/{id}/file` endpoints (own-patient or staff-like).
 Directory.CreateDirectory(app.Services.GetRequiredService<FileStorageOptions>().RootPath);
 
+app.UseForwardedHeaders(); //JJQR - AI (Nov 22, 2026) - see the ForwardedHeadersOptions note above //JJQR - END
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
