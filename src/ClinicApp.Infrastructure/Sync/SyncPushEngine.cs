@@ -113,6 +113,34 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         return result;
     }
 
+    //JJQR - AI (Nov 22, 2026) - offline-mode plan step 4.2 (D4): a NEW patient that has the same first name, last name and birthdate as a live patient with another id is applied as sent, and a
+    // "possible duplicate patient" review item is written for the admin. Nothing is merged here; merging is an admin action (step 4.4).
+    private async Task FlagPossibleDuplicatesAsync(Patient incoming, CancellationToken ct)
+    {
+        var first = PersonNameKey.Of(incoming.FirstName);
+        var last = PersonNameKey.Of(incoming.LastName);
+        if (first.Length == 0 || last.Length == 0) return;
+        var sameBirthday = await db.Patients.AsNoTracking()
+            .Where(x => x.DateOfBirth == incoming.DateOfBirth && x.PatientId != incoming.PatientId && x.DeletedAt == null)
+            .Select(x => new { x.PatientId, x.FirstName, x.LastName, x.PatientCode })
+            .ToListAsync(ct);
+        foreach (var m in sameBirthday.Where(x => PersonNameKey.Of(x.FirstName) == first && PersonNameKey.Of(x.LastName) == last).Take(3))
+        {
+            var entity = incoming.PatientId.ToString();
+            var other = m.PatientId.ToString();
+            if (await db.SyncReviewItems.AnyAsync(i => i.Kind == ReviewItemKinds.PossibleDuplicatePatient && i.EntityId == entity && i.OtherEntityId == other, ct)) continue;
+            db.SyncReviewItems.Add(new SyncReviewItem
+            {
+                Id = Guid.NewGuid(), Kind = ReviewItemKinds.PossibleDuplicatePatient, Status = ReviewItemStatus.Open,
+                Title = $"Possible duplicate patient: {incoming.FirstName} {incoming.LastName}, born {incoming.DateOfBirth:yyyy-MM-dd}",
+                DetailsJson = System.Text.Json.JsonSerializer.Serialize(new { new_patient_code = incoming.PatientCode, existing_patient_code = m.PatientCode, matched_on = "first name, last name and birthdate" }),
+                PatientId = incoming.PatientId, OtherPatientId = m.PatientId, Aggregate = "patient", EntityId = entity, OtherEntityId = other,
+                OriginNodeId = db.SyncWriterNodeId, CreatedAt = DateTimeOffset.UtcNow,
+            });
+        }
+    }
+    //JJQR - END
+
     // ── patient: field-level merge ────────────────────────────────────────
     private static readonly HashSet<string> PatientFixed = new() { "patient_id", "patient_code", "user_id", "created_at", "updated_at" };
 
@@ -140,6 +168,7 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
                 kept = ["patient_code"];
             }
             db.Patients.Add(p);
+            await FlagPossibleDuplicatesAsync(p, ct); //JJQR - AI (Nov 22, 2026) - step 4.2: applied anyway, an admin is asked to look (never merged by itself) //JJQR - END
             //JJQR - AI (Nov 21, 2026) allergies on a new patient
             if (op.Data.TryGetProperty("allergies", out var newAllergies)) await ApplyAllergiesAsync(id, newAllergies, true, ct);
             //JJQR - END
