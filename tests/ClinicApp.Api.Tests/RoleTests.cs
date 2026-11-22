@@ -84,7 +84,7 @@ public class RoleTests(ApiFixture api) : ApiTestBase(api)
     }
 
     [Fact]
-    public async Task Admin_can_waive_and_only_admin_or_staff_can_confirm()
+    public async Task Admin_can_waive_and_admin_staff_and_the_owning_doctor_can_confirm()   //JJQR - AI (Nov 22, 2026) - step 2.4 (owner Q3): the doctor may confirm too //JJQR - END
     {
         var (_, p1) = await FreshBooking();
         using var admin = Admin();
@@ -92,12 +92,20 @@ public class RoleTests(ApiFixture api) : ApiTestBase(api)
 
         var (_, p2) = await FreshBooking();
         var confirm = ApiFactory.Body(new { payment_method = "Cash", amount_received = 450 });
-        using var doc = DocA();
-        await ShouldBe(HttpStatusCode.Forbidden, await doc.PostAsync($"/api/payments/{p2}/confirm", confirm));
+        //JJQR - AI (Nov 22, 2026) - step 2.4: another doctor and a patient are still refused; the doctor who owns the visit may confirm, with a typed receipt number
+        using var otherDoc = DocB();
+        await ShouldBe(HttpStatusCode.Forbidden, await otherDoc.PostAsync($"/api/payments/{p2}/confirm", confirm));
+        using var patient = F.Patient(W.PatientA);
+        await ShouldBe(HttpStatusCode.Forbidden, await patient.PostAsync($"/api/payments/{p2}/confirm", confirm));
         Assert.Equal(PaymentStatus.Unpaid, await PaymentStatusOf(p2));
-        using var staff = StaffC();
-        await ShouldBe(HttpStatusCode.OK, await staff.PostAsync($"/api/payments/{p2}/confirm", ApiFactory.Body(new { payment_method = "Cash", amount_received = 450 })));
+        using var doc = DocA();
+        await ShouldBe(HttpStatusCode.OK, await doc.PostAsync($"/api/payments/{p2}/confirm", ApiFactory.Body(new { payment_method = "Cash", amount_received = 450, or_number = "BK-" + Guid.NewGuid().ToString("N")[..8] })));
         Assert.Equal(PaymentStatus.Paid, await PaymentStatusOf(p2));
+        //JJQR - END
+        var (_, p3) = await FreshBooking();
+        using var staff = StaffC();
+        await ShouldBe(HttpStatusCode.OK, await staff.PostAsync($"/api/payments/{p3}/confirm", ApiFactory.Body(new { payment_method = "Cash", amount_received = 450 })));
+        Assert.Equal(PaymentStatus.Paid, await PaymentStatusOf(p3));
     }
 
     // ── bookings ─────────────────────────────────────────────────────────
