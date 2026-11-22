@@ -837,7 +837,7 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         var lower = or.ToLower();
         var others = await db.Payments.AsNoTracking()
             .Where(x => x.PaymentId != p.PaymentId && x.OrNumber != null && x.OrNumber.ToLower() == lower)
-            .Select(x => new { x.PaymentId, x.OriginNodeId }).ToListAsync(ct);
+            .Select(x => new { x.PaymentId, x.BookingId, x.OriginNodeId }).ToListAsync(ct);
         if (others.Count == 0) return false;
 
         const string action = "OR number clash";
@@ -849,6 +849,22 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
 
         foreach (var o in others)
         {
+            //JJQR - AI (Nov 22, 2026) - offline-mode plan step 4.3: one review item per pair, naming both payments (and their visits) for the admin; the pair is listed once whichever arrived first
+            var mine = p.PaymentId.ToString(); var theirs = o.PaymentId.ToString();
+            if (!await db.SyncReviewItems.AnyAsync(i => i.Kind == ReviewItemKinds.OrNumberClash
+                    && ((i.EntityId == mine && i.OtherEntityId == theirs) || (i.EntityId == theirs && i.OtherEntityId == mine)), ct))
+                db.SyncReviewItems.Add(new SyncReviewItem
+                {
+                    Id = Guid.NewGuid(), Kind = ReviewItemKinds.OrNumberClash, Status = ReviewItemStatus.Open,
+                    Title = $"Receipt number {or} is on two payments",
+                    DetailsJson = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        or_number = or, payment_id = p.PaymentId, booking_id = p.BookingId, other_payment_id = o.PaymentId, other_booking_id = o.BookingId,
+                        origin = Origin(nodeId), other_origin = Origin(o.OriginNodeId),
+                    }),
+                    Aggregate = "payment", EntityId = mine, OtherEntityId = theirs, OriginNodeId = nodeId, CreatedAt = DateTimeOffset.UtcNow,
+                });
+            //JJQR - END
             if (!Logged(p.PaymentId, o.PaymentId))
                 db.AuditLogs.Add(new AuditLog
                 {
