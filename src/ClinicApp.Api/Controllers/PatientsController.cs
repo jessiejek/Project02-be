@@ -133,6 +133,16 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         // JJQR - AI (Nov 20, 2026) - B-01 / B-33: refuse blank/oversized names, bad phone/email and a future birth date
         if (Rules.Patient(payload).Result() is { } invalid) return invalid;
         // JJQR - END
+        //JJQR - AI (Nov 22, 2026) - offline-mode plan step 0.3 (V3: a repeated patient_id used to crash with a 500). The same patient_id for the SAME person (name + birth date) is a retry of a create
+        // whose reply was lost: answer 200 with the existing patient. The same id for a different person is a clash (409 id_conflict).
+        if (payload.PatientId != Guid.Empty && await db.Patients.AsNoTracking().FirstOrDefaultAsync(p => p.PatientId == payload.PatientId, ct) is { } already)
+        {
+            var samePerson = string.Equals(already.FirstName?.Trim(), payload.FirstName?.Trim(), StringComparison.OrdinalIgnoreCase)
+                             && string.Equals(already.LastName?.Trim(), payload.LastName?.Trim(), StringComparison.OrdinalIgnoreCase)
+                             && already.DateOfBirth == payload.DateOfBirth;
+            return samePerson ? Ok(already) : ClinicApp.Api.Sync.ClientIds.Conflict();
+        }
+        //JJQR - END
         var now = DateTimeOffset.UtcNow;
         payload.PatientId = payload.PatientId == Guid.Empty ? Guid.NewGuid() : payload.PatientId;
         payload.UserId = null;

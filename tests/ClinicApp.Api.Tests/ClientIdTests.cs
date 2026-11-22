@@ -46,6 +46,29 @@ public class ClientIdTests(ApiFixture api) : ApiTestBase(api)
         Assert.Contains("id_conflict", await clash.Content.ReadAsStringAsync());
     }
 
+    //JJQR - AI (Nov 22, 2026) - offline-mode plan step 0.3 (V3)
+    [Fact]
+    public async Task Patient_create_with_a_client_id_is_safe_to_repeat()
+    {
+        var id = Guid.NewGuid();
+        using var staff = F.As(W.Staff, "Staff");
+        var body = new { patient_id = id, first_name = "Retry", last_name = "Safe", date_of_birth = "1991-01-01", sex = "Male", is_guest = true };
+        var first = await staff.PostAsync("/api/patients", ApiFactory.Body(body));
+        await ShouldBe(HttpStatusCode.Created, first);
+        var code = (await JsonOf(first)).GetProperty("patient_code").GetString();
+
+        var again = await staff.PostAsync("/api/patients", ApiFactory.Body(body));
+        await ShouldBe(HttpStatusCode.OK, again);                                  // not a 500, not a second patient
+        Assert.Equal(id, (await JsonOf(again)).GetProperty("patient_id").GetGuid());
+        Assert.Equal(code, (await JsonOf(again)).GetProperty("patient_code").GetString());
+        Assert.Equal(1, await WithDb(db => db.Patients.CountAsync(p => p.PatientId == id)));
+
+        var other = await staff.PostAsync("/api/patients", ApiFactory.Body(new { patient_id = id, first_name = "Someone", last_name = "Else", date_of_birth = "1980-02-02", sex = "Female", is_guest = true }));
+        await ShouldBe(HttpStatusCode.Conflict, other);
+        Assert.Contains("id_conflict", await other.Content.ReadAsStringAsync());
+    }
+    //JJQR - END
+
     [Fact]
     public async Task Booking_create_accepts_booking_and_payment_ids()
     {
