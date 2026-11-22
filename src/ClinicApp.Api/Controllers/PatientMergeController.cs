@@ -153,7 +153,7 @@ public class PatientMergeController(ClinicAppDbContext db) : ControllerBase
 
             // 5. one audit row (ids, codes and counts only, no names)
             AuditLogWriter.Add(db, AuditEntityType.Patient, keepId, "Patients merged", me,
-                $"Merged patient {merge.PatientCode} ({mergeId}) into {keep.PatientCode} ({keepId}). Moved: " + string.Join(", ", before.Where(kv => kv.Value > 0).Select(kv => $"{kv.Value} {kv.Key}"))
+                $"Merged patient {merge.PatientCode} ({mergeId}) into {keep.PatientCode} ({keepId}). Moved: " + (before.Any(kv => kv.Value > 0) ? string.Join(", ", before.Where(kv => kv.Value > 0).Select(kv => $"{kv.Value} {kv.Key}")) : "no records")
                 + (filled.Count > 0 ? $". Filled empty fields: {string.Join(", ", filled)}" : "") + ". Note: " + note);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
