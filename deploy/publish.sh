@@ -120,12 +120,42 @@ rm -f "$TMP_OFFLINE"
 # "Deploying, back in a moment" until someone re-ran the deploy by hand.
 echo "==> Uploading to ftp://${FTP_HOST}:${FTP_PORT}${FTP_REMOTE_DIR}/ ..."
 cd "$PUBLISH_DIR"
+#JJQR - AI (Nov 22, 2026) - the host answered "425 cannot open data connection" and "broken pipe" when files arrived back to back (the deploy of 22 Nov stopped after app_offline.htm was up and left the site on the holding page TWICE).
+# Now: a short pause between files, up to 6 fresh attempts per file with a growing wait, then ONE more pass over whatever still failed after a 30 s rest.
+upload_one() {
+  local rel="$1" n
+  for n in 1 2 3 4 5 6; do
+    if curl -sS --connect-timeout 20 --max-time 180 --ftp-create-dirs -T "$rel" \
+        "ftp://${FTP_HOST}:${FTP_PORT}${FTP_REMOTE_DIR}/${rel}" --user "${FTP_USER}:${FTP_PASS}"; then
+      return 0
+    fi
+    echo "      attempt $n failed for $rel; waiting $((n * 5)) s" >&2
+    sleep $((n * 5))
+  done
+  return 1
+}
+FAILED_FILES=()
 while IFS= read -r rel; do
   echo "    $rel"
-  curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-all-errors --ftp-create-dirs -T "$rel" \
-    "ftp://${FTP_HOST}:${FTP_PORT}${FTP_REMOTE_DIR}/${rel}" \
-    --user "${FTP_USER}:${FTP_PASS}"
+  upload_one "$rel" || FAILED_FILES+=("$rel")
+  sleep 0.7
 done < <(find . -type f | sed 's|^\./||')
+if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
+  echo "==> ${#FAILED_FILES[@]} file(s) failed; resting 30 s, then one more pass..."
+  sleep 30
+  STILL=()
+  for rel in "${FAILED_FILES[@]}"; do
+    echo "    (retry) $rel"
+    upload_one "$rel" || STILL+=("$rel")
+    sleep 1
+  done
+  if [ "${#STILL[@]}" -gt 0 ]; then
+    echo "ERROR: these files could not be uploaded: ${STILL[*]}" >&2
+    echo "       app_offline.htm is LEFT in place (a half-updated site must not run). Re-run the deploy." >&2
+    exit 1
+  fi
+fi
+#JJQR - END
 cd "$REPO_ROOT"
 
 echo "==> Removing app_offline.htm (bringing the site back)..."
