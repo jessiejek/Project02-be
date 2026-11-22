@@ -154,6 +154,34 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         return Ok(row);
     }
 
+    //JJQR - AI (Nov 22, 2026) - owner: the Admin can change a staff or doctor member's sign-in email (for example a typo, or a changed address). Their sessions end so they sign in again with the new email.
+    public sealed record ChangeStaffEmailRequest(string Email);
+
+    [Authorize(Roles = "Admin")]
+    [HttpPut("{id:guid}/email")]
+    public async Task<IActionResult> ChangeEmail(Guid id, ChangeStaffEmailRequest request, CancellationToken ct)
+    {
+        var row = await db.StaffAccounts.SingleOrDefaultAsync(s => s.StaffId == id, ct);
+        if (row is null) return NotFound();
+        var user = await db.Users.FindAsync([row.UserId], ct);
+        if (user is null) return NotFound();
+
+        if (new ClinicApp.Api.Validation.Check().Email("email", "Email", request.Email, required: true).Result() is { } invalid) return invalid;
+        var newEmail = request.Email.Trim().ToLowerInvariant();
+        if (newEmail == user.Email) return BadRequest(new { message = "That is already their email." });
+        if (await db.Users.AnyAsync(u => u.Email == newEmail && u.Id != user.Id, ct))
+            return Conflict(new { message = "An account with this email already exists." });
+
+        user.Email = newEmail;
+        row.Email = newEmail;
+        var live = await db.RefreshTokens.Where(t => t.UserId == user.Id && t.RevokedAt == null).ToListAsync(ct);
+        foreach (var t in live) t.RevokedAt = DateTimeOffset.UtcNow;
+        ClinicApp.Api.Auditing.AuditLogWriter.Add(db, ClinicApp.Domain.Enums.AuditEntityType.Staff, row.StaffId, "EmailChangedByAdmin", CurrentUserId(), "Sign-in email changed by an admin");
+        await db.SaveChangesAsync(ct);
+        return Ok(new { message = "Email updated. They must sign in again with the new email.", email = newEmail });
+    }
+    //JJQR - END
+
     private Guid? CurrentUserId()
     {
         var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;

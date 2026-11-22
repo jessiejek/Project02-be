@@ -119,7 +119,7 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
     //JJQR - AI (21 Nov 2026) desktop: a doctor edits their own bio only (fee, slots, limits, license/PTR/S2 stay Admin-only on PUT {id})
     //JJQR - AI (Nov 22, 2026) - the doctor also keeps their own License / PTR / S2 numbers (printed on prescriptions and certificates); null = leave as is, "" = clear //JJQR - END
     //JJQR - AI (Nov 22, 2026) - owner: the doctor may change their OWN professional / consultation fee (ConsultationFee; null = leave as is). Only their own row can be reached (this is /me); name, specialization, slots and limits stay Admin-only. Applies to NEW bookings only.
-    public sealed record UpdateMyBioRequest(string? Bio, string? LicenseNumber = null, string? PtrNumber = null, string? S2Number = null, decimal? ConsultationFee = null);
+    public sealed record UpdateMyBioRequest(string? Bio, string? LicenseNumber = null, string? PtrNumber = null, string? S2Number = null, decimal? ConsultationFee = null, string? Specialization = null, string? FullName = null); //JJQR - AI (Nov 22, 2026) - owner: the doctor also edits their own specialization and full name //JJQR - END
     //JJQR - END
 
     static string? Pick(string? sent, string? current) => sent is null ? current : string.IsNullOrWhiteSpace(sent) ? null : sent.Trim();
@@ -139,7 +139,7 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
         // Reuse Rules.Doctor on a copy (existing values + the new bio) so the bio limit is the same one Admin edits use.
         var probe = new Doctor
         {
-            Specialization = doctor.Specialization, ConsultationFee = request.ConsultationFee ?? doctor.ConsultationFee, Bio = bio,
+            Specialization = string.IsNullOrWhiteSpace(request.Specialization) ? doctor.Specialization : request.Specialization.Trim(), ConsultationFee = request.ConsultationFee ?? doctor.ConsultationFee, Bio = bio,
             LicenseNumber = Pick(request.LicenseNumber, doctor.LicenseNumber), PtrNumber = Pick(request.PtrNumber, doctor.PtrNumber), S2Number = Pick(request.S2Number, doctor.S2Number),
             SlotDurationMinutes = doctor.SlotDurationMinutes, SlotCapacity = doctor.SlotCapacity, DailyPatientLimit = doctor.DailyPatientLimit,
         };
@@ -147,6 +147,15 @@ public class DoctorsController(ClinicAppDbContext db, ActorResolver actors) : Co
 
         doctor.Bio = bio;
         doctor.LicenseNumber = probe.LicenseNumber; doctor.PtrNumber = probe.PtrNumber; doctor.S2Number = probe.S2Number;
+        //JJQR - AI (Nov 22, 2026) - owner: own specialization and full name (name lives on the staff profile; same rules as a staff self-edit)
+        doctor.Specialization = probe.Specialization;
+        if (!string.IsNullOrWhiteSpace(request.FullName) && doctor.StaffAccount is { } staffRow)
+        {
+            var nameProbe = new StaffAccount { FullName = request.FullName.Trim(), ContactNumber = staffRow.ContactNumber };
+            if (Rules.Staff(nameProbe).Result() is { } badName) return badName;
+            staffRow.FullName = nameProbe.FullName;
+        }
+        //JJQR - END
         //JJQR - AI (Nov 22, 2026) - own fee change: audited (old and new amount, who), no patient data
         if (request.ConsultationFee is { } newFee && newFee != doctor.ConsultationFee)
         {

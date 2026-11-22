@@ -42,6 +42,12 @@ public record ChangePasswordRequest(
     [property: JsonPropertyName("currentPassword")] string CurrentPassword,
     [property: JsonPropertyName("newPassword")] string NewPassword);
 
+//JJQR - AI (Nov 22, 2026) - owner: users can change their own email (password required)
+public record ChangeEmailRequest(
+    [property: JsonPropertyName("currentPassword")] string CurrentPassword,
+    [property: JsonPropertyName("newEmail")] string NewEmail);
+//JJQR - END
+
 public record ResendVerificationRequest(string Email);
 
 public record GoogleLoginRequest(

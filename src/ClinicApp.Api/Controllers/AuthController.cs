@@ -326,6 +326,41 @@ public class AuthController(
         return Ok(new { message = "Password updated." });
     }
 
+    //JJQR - AI (Nov 22, 2026) - owner: every signed-in user (patient, staff, doctor, admin) can change their own sign-in email. The current password is required.
+    // The email is changed everywhere it is stored for this person (login, staff profile, patient record). Other sessions are signed out; this one keeps working.
+    [Authorize]
+    [HttpPost("change-email")]
+    public async Task<IActionResult> ChangeEmail(ChangeEmailRequest request, CancellationToken ct)
+    {
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+        var user = await db.Users.FindAsync([userId.Value], ct);
+        if (user is null) return Unauthorized();
+
+        if (!passwordHasher.Verify(user, user.PasswordHash, request.CurrentPassword ?? ""))
+            return BadRequest(new { message = "Your current password is incorrect." });
+        var check = new ClinicApp.Api.Validation.Check().Email("email", "Email", request.NewEmail, required: true);
+        if (check.Result() is { } invalid) return invalid;
+        var newEmail = request.NewEmail.Trim().ToLowerInvariant();
+        if (newEmail == user.Email) return BadRequest(new { message = "That is already your email." });
+        if (await db.Users.AnyAsync(u => u.Email == newEmail && u.Id != user.Id, ct))
+            return Conflict(new { message = "An account with this email already exists." });
+
+        await ApplyEmailChangeAsync(user, newEmail, ct);
+        AuditLogWriter.Add(db, AuditEntityType.Auth, user.Id, "EmailChanged", user.Id, "Sign-in email changed by the user");
+        await db.SaveChangesAsync(ct);
+        return Ok(new { message = "Email updated. Use the new email the next time you sign in.", email = newEmail });
+    }
+
+    /// <summary>One place that changes the email everywhere this person has it.</summary>
+    internal async Task ApplyEmailChangeAsync(ClinicApp.Auth.User user, string newEmail, CancellationToken ct)
+    {
+        user.Email = newEmail;
+        foreach (var s in await db.StaffAccounts.Where(x => x.UserId == user.Id).ToListAsync(ct)) s.Email = newEmail;
+        foreach (var p in await db.Patients.Where(x => x.UserId == user.Id).ToListAsync(ct)) p.Email = newEmail;
+    }
+    //JJQR - END
+
     /// <summary>Re-send the email-verification link (no-op without SMTP — logs the link).</summary>
     [HttpPost("resend-verification")]
     public async Task<IActionResult> ResendVerification(ResendVerificationRequest request, CancellationToken ct)
