@@ -84,6 +84,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     //JJQR - AI (Nov 21, 2026) cloud sync: node registry, push idempotency log, pull change log
     public DbSet<SyncNode> SyncNodes => Set<SyncNode>();
     public DbSet<SyncOperation> SyncOperations => Set<SyncOperation>();
+    public DbSet<SyncReviewItem> SyncReviewItems => Set<SyncReviewItem>(); //JJQR - AI (Nov 22, 2026) - step 4.1 //JJQR - END
     public DbSet<SyncChange> SyncChanges => Set<SyncChange>();
     //JJQR - AI (Nov 21, 2026) offline self-edits: per-field last-write times
     public DbSet<SyncFieldStamp> SyncFieldStamps => Set<SyncFieldStamp>();
@@ -178,6 +179,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         {
             e.HasKey(p => p.PatientId);
             e.HasIndex(p => p.PatientCode).IsUnique();
+            e.HasIndex(p => p.MergedIntoPatientId); //JJQR - AI (Nov 22, 2026) - step 4.4 //JJQR - END
             // schema.sql: patients.user_id uuid unique — nullable, so filtered.
             e.HasIndex(p => p.UserId).IsUnique().HasFilter("[user_id] IS NOT NULL");
         });
@@ -491,6 +493,24 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
             e.Property(o => o.ReasonCode).HasMaxLength(64);
             e.HasIndex(o => new { o.NodeId, o.ReceivedAt });
         });
+        //JJQR - AI (Nov 22, 2026) - offline-mode plan step 4.1
+        modelBuilder.Entity<SyncReviewItem>(e =>
+        {
+            e.ToTable("sync_review_items");
+            e.HasKey(i => i.Id);
+            e.Property(i => i.Id).ValueGeneratedNever();
+            e.Property(i => i.Kind).HasMaxLength(40);
+            e.Property(i => i.Status).HasMaxLength(16);
+            e.Property(i => i.Title).HasMaxLength(300);
+            e.Property(i => i.Aggregate).HasMaxLength(64);
+            e.Property(i => i.EntityId).HasMaxLength(100);
+            e.Property(i => i.OtherEntityId).HasMaxLength(100);
+            e.Property(i => i.Resolution).HasMaxLength(16);
+            e.Property(i => i.ResolutionNote).HasMaxLength(1000);
+            e.HasIndex(i => new { i.Status, i.CreatedAt });
+            e.HasIndex(i => new { i.Kind, i.EntityId, i.OtherEntityId }).IsUnique(); // the same problem is listed once
+        });
+        //JJQR - END
         modelBuilder.Entity<SyncChange>(e =>
         {
             e.ToTable("sync_changes");

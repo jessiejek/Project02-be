@@ -79,3 +79,55 @@ public class SyncFieldStamp
     public Guid? OriginNodeId { get; set; }
 }
 //JJQR - END
+
+//JJQR - AI (Nov 22, 2026) - offline-mode plan step 4.1: a sync problem an admin has to look at (possible duplicate patient, receipt-number clash, a change the server refused or got stuck on).
+// Lives on the server, because the admin web portal reads this database. Merging is a separate admin action (step 4.4).
+public class SyncReviewItem
+{
+    public Guid Id { get; set; }
+    /// <summary>See <see cref="ReviewItemKinds"/>.</summary>
+    public string Kind { get; set; } = "";
+    /// <summary>'open' | 'resolved'.</summary>
+    public string Status { get; set; } = ReviewItemStatus.Open;
+    public string Title { get; set; } = "";
+    public string? DetailsJson { get; set; }
+    /// <summary>For a possible duplicate: the patient that arrived and the one it may duplicate.</summary>
+    public Guid? PatientId { get; set; }
+    public Guid? OtherPatientId { get; set; }
+    public string? Aggregate { get; set; }
+    public string? EntityId { get; set; }
+    public string? OtherEntityId { get; set; }
+    public Guid? OriginNodeId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? ResolvedAt { get; set; }
+    public Guid? ResolvedByUserId { get; set; }
+    /// <summary>'merged' | 'dismissed' | 'fixed'.</summary>
+    public string? Resolution { get; set; }
+    public string? ResolutionNote { get; set; }
+}
+
+public static class ReviewItemKinds
+{
+    public const string PossibleDuplicatePatient = "possible_duplicate_patient";
+    public const string OrNumberClash = "or_number_clash";
+    public const string ChangeRejected = "change_rejected";
+    public const string ChangeStuck = "change_stuck";
+    public static readonly string[] All = [PossibleDuplicatePatient, OrNumberClash, ChangeRejected, ChangeStuck];
+    /// <summary>The kinds a desktop may upload (the server makes the other two itself).</summary>
+    public static readonly string[] FromNodes = [ChangeRejected, ChangeStuck];
+}
+
+public static class ReviewItemStatus
+{
+    public const string Open = "open";
+    public const string Resolved = "resolved";
+}
+
+public static class ReviewResolutions
+{
+    public const string Merged = "merged";
+    public const string Dismissed = "dismissed";
+    public const string Fixed = "fixed";
+}
+//JJQR - END
+

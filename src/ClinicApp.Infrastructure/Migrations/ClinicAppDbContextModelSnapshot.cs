@@ -1859,6 +1859,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("date")
                         .HasColumnName("lmp_date");
 
+                    b.Property<Guid?>("MergedIntoPatientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("merged_into_patient_id");
+
                     b.Property<string>("MiddleName")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("middle_name");
@@ -1915,6 +1919,9 @@ namespace ClinicApp.Infrastructure.Migrations
 
                     b.HasKey("PatientId")
                         .HasName("pk_patients");
+
+                    b.HasIndex("MergedIntoPatientId")
+                        .HasDatabaseName("ix_patients_merged_into_patient_id");
 
                     b.HasIndex("PatientCode")
                         .IsUnique()
@@ -3211,6 +3218,97 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasDatabaseName("ix_sync_operations_node_id_received_at");
 
                     b.ToTable("sync_operations", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicApp.Domain.Entities.SyncReviewItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Aggregate")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("aggregate");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DetailsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("details_json");
+
+                    b.Property<string>("EntityId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid?>("OriginNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("origin_node_id");
+
+                    b.Property<string>("OtherEntityId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("other_entity_id");
+
+                    b.Property<Guid?>("OtherPatientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("other_patient_id");
+
+                    b.Property<Guid?>("PatientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("patient_id");
+
+                    b.Property<string>("Resolution")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("resolution");
+
+                    b.Property<string>("ResolutionNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("resolution_note");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<Guid?>("ResolvedByUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("resolved_by_user_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sync_review_items");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("ix_sync_review_items_status_created_at");
+
+                    b.HasIndex("Kind", "EntityId", "OtherEntityId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_sync_review_items_kind_entity_id_other_entity_id")
+                        .HasFilter("[entity_id] IS NOT NULL AND [other_entity_id] IS NOT NULL");
+
+                    b.ToTable("sync_review_items", (string)null);
                 });
 
             modelBuilder.Entity("ClinicApp.Domain.Entities.VDailyBookingSummary", b =>
