@@ -201,7 +201,10 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
         policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
-              .AllowAnyMethod());
+              .AllowAnyMethod()
+              //JJQR - AI (Nov 22, 2026) - the browser must be allowed to read the visit-version headers (stale-form protection)
+              .WithExposedHeaders("X-Visit-Version", "X-Visit-Booking", "X-Visit-Consultation"));
+              //JJQR - END
 });
 
 var app = builder.Build();
@@ -313,6 +316,7 @@ app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<ClinicApp.Api.Middleware.VisitVersionMiddleware>(); //JJQR - AI (Nov 22, 2026) - stale-form protection //JJQR - END
 
 app.MapControllers();
 app.MapHub<ClinicHub>("/hubs/clinic");
