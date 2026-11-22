@@ -53,6 +53,31 @@ public static class Rules
         .Optional("lot_number", "Lot number", lot, 100)
         .Optional("notes", "Notes", notes, 2000);
 
+    //JJQR - AI (Nov 22, 2026) - QA high #6: a prescription line needs a dosage and a real quantity. Quantity -5, "abc", 0, an empty dosage and a negative or absurd duration all used to save and print.
+    public static Check RxItem(RxItemInput i, int number)
+    {
+        var c = new Check();
+        var n = $"Medicine {number}";
+        c.Required($"items[{number}].generic_name", $"{n}: medicine name", i.GenericName, 200)
+         .Required($"items[{number}].dosage", $"{n}: dosage", i.Dosage, 100)
+         .Optional($"items[{number}].instruction", $"{n}: instructions", i.Instruction, 500)
+         .Optional($"items[{number}].indication", $"{n}: indication", i.Indication, 200)
+         .Optional($"items[{number}].route", $"{n}: route", i.Route, 50);
+        var q = (i.Quantity ?? "").Trim();
+        if (q.Length == 0) c.Fail($"items[{number}].quantity", $"{n}: quantity is required.");
+        else if (q.Length > 40) c.Fail($"items[{number}].quantity", $"{n}: quantity is too long.");
+        else
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(q, @"-?\d+(?:\.\d+)?");
+            if (!m.Success) c.Fail($"items[{number}].quantity", $"{n}: quantity must include a number, for example 30 or 1 box.");
+            else if (m.Value.StartsWith('-') || decimal.Parse(m.Value, System.Globalization.CultureInfo.InvariantCulture) <= 0)
+                c.Fail($"items[{number}].quantity", $"{n}: quantity must be more than 0.");
+        }
+        if (i.DurationValue is { } d && (d < 1 || d > 365)) c.Fail($"items[{number}].duration", $"{n}: duration must be between 1 and 365.");
+        return c;
+    }
+    //JJQR - END
+
     public static Check LabOrder(LabOrderInput o) => new Check()
         .Required("test_name", "Test name", o.TestName, 200)
         .Optional("clinical_indication", "Clinical indication", o.ClinicalIndication, 1000)

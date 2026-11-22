@@ -97,6 +97,7 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         if (c is null) return NotFound();
         var actorById = await actors.ResolveAsync(User, ct);
         if (!actorById.CanAccessPatient(c.PatientId)) return NotFound();
+        if (actorById.IsDoctor && actorById.StaffId != c.DoctorId) return NotFound(); //JJQR - AI (Nov 22, 2026) - QA high #7: a doctor opens only their OWN consultations (the list already did) //JJQR - END
         await AccessLog.RecordAsync(db, actorById, c.PatientId, "Consultations", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return Ok(c);
     }
@@ -108,6 +109,7 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
         if (c is null) return NotFound();
         var actorByBooking = await actors.ResolveAsync(User, ct);
         if (!actorByBooking.CanAccessPatient(c.PatientId)) return NotFound();
+        if (actorByBooking.IsDoctor && actorByBooking.StaffId != c.DoctorId) return NotFound(); //JJQR - AI (Nov 22, 2026) - QA high #7 //JJQR - END
         await AccessLog.RecordAsync(db, actorByBooking, c.PatientId, "Consultations", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return Ok(c);
     }
@@ -297,8 +299,9 @@ public class ConsultationsController(ClinicAppDbContext db, ActorResolver actors
     public async Task<ActionResult<List<ConsultationDiagnosis>>> GetDiagnoses(Guid id, CancellationToken ct)
     {
         var owner = await db.Consultations.AsNoTracking().Where(c => c.ConsultationId == id)
-            .Select(c => (Guid?)c.PatientId).SingleOrDefaultAsync(ct);
-        if (owner is null || !(await actors.ResolveAsync(User, ct)).CanAccessPatient(owner.Value)) return NotFound();
+            .Select(c => new { c.PatientId, c.DoctorId }).SingleOrDefaultAsync(ct);
+        var dxActor = await actors.ResolveAsync(User, ct);
+        if (owner is null || !dxActor.CanAccessPatient(owner.PatientId) || (dxActor.IsDoctor && dxActor.StaffId != owner.DoctorId)) return NotFound(); //JJQR - AI (Nov 22, 2026) - QA high #7 //JJQR - END
         return Ok(await db.ConsultationDiagnoses.AsNoTracking().Where(d => d.ConsultationId == id).ToListAsync(ct));
     }
 

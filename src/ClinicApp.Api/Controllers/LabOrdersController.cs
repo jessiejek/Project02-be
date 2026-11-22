@@ -69,9 +69,10 @@ public class LabOrdersController(ClinicAppDbContext db, ActorResolver actors) : 
     public async Task<ActionResult<List<LabOrder>>> GetByConsultation(Guid consultationId, CancellationToken ct)
     {
         var owner = await db.Consultations.AsNoTracking().Where(c => c.ConsultationId == consultationId)
-            .Select(c => (Guid?)c.PatientId).SingleOrDefaultAsync(ct);
+            .Select(c => new { c.PatientId, c.DoctorId }).SingleOrDefaultAsync(ct);
         // Unknown id and someone else's id look identical to a patient (empty list), like RLS.
-        if (owner is null || !(await actors.ResolveAsync(User, ct)).CanAccessPatient(owner.Value)) return Ok(new List<LabOrder>());
+        var labActor = await actors.ResolveAsync(User, ct);
+        if (owner is null || !labActor.CanAccessPatient(owner.PatientId) || (labActor.IsDoctor && labActor.StaffId != owner.DoctorId)) return Ok(new List<LabOrder>()); //JJQR - AI (Nov 22, 2026) - QA high #7: a doctor sees only their own lab orders //JJQR - END
         return Ok(await db.LabOrders.AsNoTracking()
             .Where(l => l.ConsultationId == consultationId)
             .OrderBy(l => l.CreatedAt).ToListAsync(ct));
@@ -81,8 +82,9 @@ public class LabOrdersController(ClinicAppDbContext db, ActorResolver actors) : 
     public async Task<ActionResult<List<LabOrder>>> GetByBooking(Guid bookingId, CancellationToken ct)
     {
         var owned = await db.Consultations.AsNoTracking().Where(c => c.BookingId == bookingId)
-            .Select(c => new { c.ConsultationId, c.PatientId }).SingleOrDefaultAsync(ct);
-        if (owned is null || !(await actors.ResolveAsync(User, ct)).CanAccessPatient(owned.PatientId)) return Ok(new List<LabOrder>());
+            .Select(c => new { c.ConsultationId, c.PatientId, c.DoctorId }).SingleOrDefaultAsync(ct);
+        var labBookingActor = await actors.ResolveAsync(User, ct);
+        if (owned is null || !labBookingActor.CanAccessPatient(owned.PatientId) || (labBookingActor.IsDoctor && labBookingActor.StaffId != owned.DoctorId)) return Ok(new List<LabOrder>()); //JJQR - AI (Nov 22, 2026) - QA high #7 //JJQR - END
         var cid = owned.ConsultationId;
         return Ok(await db.LabOrders.AsNoTracking()
             .Where(l => l.ConsultationId == cid).OrderBy(l => l.CreatedAt).ToListAsync(ct));

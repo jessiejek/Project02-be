@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
+using ClinicApp.Api.Validation;
+
 namespace ClinicApp.Api.Controllers;
 
 public record RxItemInput(
@@ -91,6 +93,7 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         if (g is null) return NotFound();
         var actorG = await actors.ResolveAsync(User, ct);
         if (!actorG.CanAccessPatient(g.PatientId)) return NotFound();
+        if (actorG.IsDoctor && actorG.StaffId != g.DoctorId) return NotFound(); //JJQR - AI (Nov 22, 2026) - QA high #7: a doctor opens only their own prescriptions //JJQR - END
         await AccessLog.RecordAsync(db, actorG, g.PatientId, "Prescriptions", ct); // JJQR - AI (Nov 20, 2026) - PV-5: access log
         return Ok(g);
     }
@@ -119,6 +122,11 @@ public class PrescriptionsController(ClinicAppDbContext db, ActorResolver actors
         if (req.PatientId != ownerBooking.PatientId || req.DoctorId != ownerBooking.DoctorId)
             return BadRequest(new { message = "Patient / doctor do not match the booking." });
 
+        //JJQR - AI (Nov 22, 2026) - QA high #6: refuse nonsense lines before anything is touched
+        var rxNumber = 0;
+        foreach (var line in req.Items)
+            if (Rules.RxItem(line, ++rxNumber).Result() is { } invalidLine) return invalidLine;
+        //JJQR - END
         var now = DateTimeOffset.UtcNow;
         var g = await db.PrescriptionGroups.Include(x => x.LineItems).SingleOrDefaultAsync(x => x.BookingId == bookingId, ct);
         if (g is null)
