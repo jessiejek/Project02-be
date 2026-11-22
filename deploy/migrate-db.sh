@@ -34,6 +34,7 @@ if [[ -z "$LAST" ]]; then echo "ERROR: could not read the database's current mig
 echo "    database is on: $LAST"
 
 echo "==> Building the update script (only what is missing)..."
+dotnet tool restore >/dev/null 2>&1 || true   # the pinned dotnet-ef from dotnet-tools.json
 dotnet ef migrations script "$LAST" --idempotent \
   --project src/ClinicApp.Infrastructure --startup-project src/ClinicApp.Api --output "$OUT" >/dev/null
 sed -i.bak '1s/^\xEF\xBB\xBF//' "$OUT" && rm -f "$OUT.bak"   # byte-order mark off

@@ -40,8 +40,7 @@ jobs:
       - name: Install database tools
         run: |
           brew install sqlcmd
-          dotnet tool install --global dotnet-ef --version "10.*"
-          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          dotnet tool restore   # the repo pins its own dotnet-ef (dotnet-tools.json)
 
       - name: Update database (only what is missing)
         env:
