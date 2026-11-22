@@ -21,6 +21,9 @@ public class Patient : IHasUpdatedAt, ISyncTracked
     public DateTimeOffset? DeletedAt { get; set; }
     public Guid? OriginNodeId { get; set; }
     //JJQR - END
+    //JJQR - AI (Nov 22, 2026) - offline-mode plan step 4.4: set when an admin merged this patient into another (the one to keep). The row is also soft-deleted; desktops receive both.
+    public Guid? MergedIntoPatientId { get; set; }
+    //JJQR - END
     public Guid PatientId { get; set; }
     public Guid? UserId { get; set; }
     public string PatientCode { get; set; } = "";

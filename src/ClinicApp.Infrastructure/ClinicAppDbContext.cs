@@ -179,6 +179,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         {
             e.HasKey(p => p.PatientId);
             e.HasIndex(p => p.PatientCode).IsUnique();
+            e.HasIndex(p => p.MergedIntoPatientId); //JJQR - AI (Nov 22, 2026) - step 4.4 //JJQR - END
             // schema.sql: patients.user_id uuid unique — nullable, so filtered.
             e.HasIndex(p => p.UserId).IsUnique().HasFilter("[user_id] IS NOT NULL");
         });

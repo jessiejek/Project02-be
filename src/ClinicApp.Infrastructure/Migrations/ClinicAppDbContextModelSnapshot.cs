@@ -1859,6 +1859,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("date")
                         .HasColumnName("lmp_date");
 
+                    b.Property<Guid?>("MergedIntoPatientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("merged_into_patient_id");
+
                     b.Property<string>("MiddleName")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("middle_name");
@@ -1915,6 +1919,9 @@ namespace ClinicApp.Infrastructure.Migrations
 
                     b.HasKey("PatientId")
                         .HasName("pk_patients");
+
+                    b.HasIndex("MergedIntoPatientId")
+                        .HasDatabaseName("ix_patients_merged_into_patient_id");
 
                     b.HasIndex("PatientCode")
                         .IsUnique()
