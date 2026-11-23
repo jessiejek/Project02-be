@@ -11,6 +11,26 @@ public class PrivacyRightsTests(ApiFixture api) : ApiTestBase(api)
 {
     private static JsonElement Json(string s) => JsonDocument.Parse(s).RootElement;
 
+    //JJQR - AI (Nov 23, 2026) - the front desk records that the privacy notice was shown; it is an audit entry, never a consent
+    [Fact]
+    public async Task Front_desk_can_record_that_the_privacy_notice_was_shown_but_it_is_only_an_audit_entry()
+    {
+        var p = await TestHelpers.NewPatientAsync(F);
+        using var staff = F.As(W.Staff, "Staff");
+        using var me = F.ClientFor(p.UserId, "Patient");
+
+        await ShouldBe(HttpStatusCode.NoContent, await staff.PostAsync($"/api/patients/{p.PatientId}/privacy-notice-shown", null));
+        await ShouldBe(HttpStatusCode.NotFound, await staff.PostAsync($"/api/patients/{Guid.NewGuid()}/privacy-notice-shown", null));
+        await ShouldBeDenied(await me.PostAsync($"/api/patients/{p.PatientId}/privacy-notice-shown", null)); // a patient is not the front desk
+
+        var logs = await WithDb(db => db.AuditLogs.AsNoTracking().Where(a => a.EntityId == p.PatientId && a.Action == "PrivacyNoticeShown").ToListAsync());
+        Assert.Single(logs);
+        Assert.Contains("shown at the front desk", logs[0].Details);
+        var patient = await WithDb(db => db.Patients.AsNoTracking().SingleAsync(x => x.PatientId == p.PatientId));
+        Assert.Null(patient.ConsentedAt); // staff cannot consent for a patient: nothing about consent changed
+    }
+    //JJQR - END
+
     [Fact]
     public async Task Consent_decisions_are_the_patients_own_and_each_one_is_kept_as_a_dated_row()
     {

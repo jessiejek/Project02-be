@@ -363,6 +363,20 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     }
     // JJQR - END
 
+    //JJQR - AI (Nov 23, 2026) - Data Privacy Act (PH): when the front desk registers a patient, the privacy notice must be shown. Staff cannot consent FOR a patient (PV-2 above stays), so this only records, in the audit log, that
+    // the notice (at the clinic's current version) was shown to the patient at the desk. The patient still gives their own consent in the portal. Admin, Staff and Doctor only.
+    [Authorize(Roles = "Admin,Staff,Doctor")]
+    [HttpPost("{id:guid}/privacy-notice-shown")]
+    public async Task<IActionResult> PrivacyNoticeShown(Guid id, CancellationToken ct)
+    {
+        if (!await db.Patients.AsNoTracking().AnyAsync(p => p.PatientId == id, ct)) return NotFound();
+        var version = await db.ClinicSettings.AsNoTracking().Where(s => s.Id == 1).Select(s => (int?)s.ConsentVersion).SingleOrDefaultAsync(ct) ?? 1;
+        AuditLogWriter.Add(db, AuditEntityType.Patient, id, "PrivacyNoticeShown", CurrentUserId(), $"Privacy notice v{version} shown at the front desk");
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+    //JJQR - END
+
     private Guid? CurrentUserId()
     {
         var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
