@@ -184,7 +184,7 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
 
     //JJQR - AI (Nov 23, 2026) - owner wishlist: the Admin can set a new temporary password for a Staff or Doctor member (support without developer help).
     // Rules: Admin only; not for Admin accounts (including your own: use Profile); same password rule as everywhere; clears any lock-out;
-    // ends their sessions; they must choose their own password at next sign-in (MustSetPassword); written to the audit log (never the password).
+    // ends their sessions; written to the audit log (never the password). No forced change: neither app acts on the first-login flag, so they are asked in person to change it in Profile.
     public sealed record SetStaffPasswordRequest([property: System.Text.Json.Serialization.JsonPropertyName("newPassword")] string NewPassword);
 
     [Authorize(Roles = "Admin")]
@@ -200,14 +200,13 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
         if (ClinicApp.Auth.PasswordPolicy.Check(request.NewPassword ?? "", user.Email) is { } weak) return BadRequest(new { message = weak });
 
         user.PasswordHash = hasher.Hash(user, request.NewPassword!);
-        user.MustSetPassword = true;
         user.FailedLoginCount = 0;
         user.LockedUntil = null;
         var live = await db.RefreshTokens.Where(t => t.UserId == user.Id && t.RevokedAt == null).ToListAsync(ct);
         foreach (var t in live) t.RevokedAt = DateTimeOffset.UtcNow;
-        ClinicApp.Api.Auditing.AuditLogWriter.Add(db, AuditEntityType.Staff, row.StaffId, "PasswordResetByAdmin", CurrentUserId(), "Temporary password set by an admin; the user must choose a new one at next sign-in");
+        ClinicApp.Api.Auditing.AuditLogWriter.Add(db, AuditEntityType.Staff, row.StaffId, "PasswordResetByAdmin", CurrentUserId(), "Password set by an admin; the user is asked to change it in Profile");
         await db.SaveChangesAsync(ct);
-        return Ok(new { message = "Password set. They must choose their own new password the next time they sign in." });
+        return Ok(new { message = "Password set. Ask them to change it in their Profile after signing in." });
     }
     //JJQR - END
 
