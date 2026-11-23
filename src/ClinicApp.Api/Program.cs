@@ -157,6 +157,7 @@ builder.Services.AddSignalR();
 var rl = builder.Configuration.GetSection("RateLimiting");
 var globalPerMinute = rl.GetValue<int?>("GlobalPermitPerMinute") ?? 300;
 var authPerMinute = rl.GetValue<int?>("AuthPermitPerMinute") ?? 10;
+var authTotalPerMinute = rl.GetValue<int?>("AuthTotalPermitPerMinute") ?? 60; //JJQR - AI (Nov 23, 2026) combined cap for every client together //JJQR - END
 //JJQR - AI (Nov 22, 2026) - on the live host (IIS in front of Kestrel) every request arrived from 127.0.0.1, so ALL users shared ONE rate-limit bucket (300 calls a minute, and only 10 sign-ins a minute for everybody) and the web dashboard got 429s.
 // Trust the proxy's X-Forwarded-For so each real client has its own bucket. Safe here: Kestrel is only reachable through IIS on this host.
 builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(o =>
@@ -172,13 +173,25 @@ builder.Services.AddRateLimiter(options =>
     static string ClientKey(HttpContext ctx) =>
         ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
-        RateLimitPartition.GetFixedWindowLimiter(ClientKey(ctx), _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = globalPerMinute,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0
-        }));
+    //JJQR - AI (Nov 23, 2026) - live test: a sender could rotate fake X-Forwarded-For values (135 sign-ins, none blocked), so the per-address limit can be dodged. Add a combined cap for ALL /api/auth/ calls that does not depend on any address; per-account lockout still protects each login.
+    options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
+        PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+            RateLimitPartition.GetFixedWindowLimiter(ClientKey(ctx), _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = globalPerMinute,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            })),
+        PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+            ctx.Request.Path.StartsWithSegments("/api/auth")
+                ? RateLimitPartition.GetFixedWindowLimiter("auth-all-clients", _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = authTotalPerMinute,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                })
+                : RateLimitPartition.GetNoLimiter("not-auth")));
+    //JJQR - END
 
     options.AddPolicy("auth", ctx =>
         RateLimitPartition.GetFixedWindowLimiter(ClientKey(ctx), _ => new FixedWindowRateLimiterOptions

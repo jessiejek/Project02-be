@@ -33,6 +33,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("FileStorage__RootPath", UploadsRoot);
         Environment.SetEnvironmentVariable("RateLimiting__GlobalPermitPerMinute", "1000000");
         Environment.SetEnvironmentVariable("RateLimiting__AuthPermitPerMinute", "1000000");
+        Environment.SetEnvironmentVariable("RateLimiting__AuthTotalPermitPerMinute", "1000000");
         //JJQR - AI (Nov 21, 2026) cloud sync: tests read their own changes back immediately
         Environment.SetEnvironmentVariable("Sync__PullSettleSeconds", "0");
         //JJQR - END
