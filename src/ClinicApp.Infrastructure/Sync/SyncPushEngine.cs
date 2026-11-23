@@ -164,7 +164,12 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             if (code.Length == 0 || code.StartsWith("MF-T-", StringComparison.OrdinalIgnoreCase)
                 || await db.Patients.AnyAsync(x => x.PatientCode == code && x.PatientId != id, ct))
             {
-                p.PatientCode = await codes.NextAsync(db, ct);
+                //JJQR - AI (Nov 24, 2026) - the server's counter does not know the codes a computer issued while offline: keep asking until the code is really free, otherwise the new patient was rejected ("duplicate key ix_patients_patient_code")
+                var fresh = await codes.NextAsync(db, ct);
+                for (var attempt = 0; attempt < 2000 && await db.Patients.AnyAsync(x => x.PatientCode == fresh && x.PatientId != id, ct); attempt++)
+                    fresh = await codes.NextAsync(db, ct);
+                p.PatientCode = fresh;
+                //JJQR - END
                 kept = ["patient_code"];
             }
             db.Patients.Add(p);
