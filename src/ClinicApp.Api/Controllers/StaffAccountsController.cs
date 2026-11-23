@@ -182,6 +182,35 @@ public class StaffAccountsController(ClinicAppDbContext db) : ControllerBase
     }
     //JJQR - END
 
+    //JJQR - AI (Nov 23, 2026) - owner wishlist: the Admin can set a new temporary password for a Staff or Doctor member (support without developer help).
+    // Rules: Admin only; not for Admin accounts (including your own: use Profile); same password rule as everywhere; clears any lock-out;
+    // ends their sessions; they must choose their own password at next sign-in (MustSetPassword); written to the audit log (never the password).
+    public sealed record SetStaffPasswordRequest([property: System.Text.Json.Serialization.JsonPropertyName("newPassword")] string NewPassword);
+
+    [Authorize(Roles = "Admin")]
+    [HttpPut("{id:guid}/password")]
+    public async Task<IActionResult> SetPassword(Guid id, SetStaffPasswordRequest request, [FromServices] ClinicApp.Auth.PasswordHasherService hasher, CancellationToken ct)
+    {
+        var row = await db.StaffAccounts.SingleOrDefaultAsync(s => s.StaffId == id, ct);
+        if (row is null) return NotFound();
+        if (row.Role == StaffRole.Admin) return BadRequest(new { message = "Admin passwords are changed by the admin themselves (Profile)." });
+        var user = await db.Users.FindAsync([row.UserId], ct);
+        if (user is null) return NotFound();
+
+        if (ClinicApp.Auth.PasswordPolicy.Check(request.NewPassword ?? "", user.Email) is { } weak) return BadRequest(new { message = weak });
+
+        user.PasswordHash = hasher.Hash(user, request.NewPassword!);
+        user.MustSetPassword = true;
+        user.FailedLoginCount = 0;
+        user.LockedUntil = null;
+        var live = await db.RefreshTokens.Where(t => t.UserId == user.Id && t.RevokedAt == null).ToListAsync(ct);
+        foreach (var t in live) t.RevokedAt = DateTimeOffset.UtcNow;
+        ClinicApp.Api.Auditing.AuditLogWriter.Add(db, AuditEntityType.Staff, row.StaffId, "PasswordResetByAdmin", CurrentUserId(), "Temporary password set by an admin; the user must choose a new one at next sign-in");
+        await db.SaveChangesAsync(ct);
+        return Ok(new { message = "Password set. They must choose their own new password the next time they sign in." });
+    }
+    //JJQR - END
+
     private Guid? CurrentUserId()
     {
         var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
