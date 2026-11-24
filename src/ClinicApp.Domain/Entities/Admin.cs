@@ -80,6 +80,12 @@ public class ClinicSetting
     public bool AutoPaidOnComplete { get; set; }
     //JJQR - END
 
+    //JJQR - AI (Nov 24, 2026) - owner: the Admin chooses which consultation parts must be filled before a visit can be completed (Admin > Settings > Consultation).
+    // Comma list of keys: "notes", "vitals", "prescription". Null = the default: clinical notes only. The professional fee is ALWAYS required (payment depends on it).
+    // Changed only through PUT api/settings/consult-required. Web and desktop read it; offline computers use their synced copy.
+    public string? ConsultRequired { get; set; }
+    //JJQR - END
+
     public Guid? UpdatedByUserId { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

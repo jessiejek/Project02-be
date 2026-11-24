@@ -491,6 +491,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("int")
                         .HasColumnName("consent_version");
 
+                    b.Property<string>("ConsultRequired")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("consult_required");
+
                     b.Property<string>("ContactNumber")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("contact_number");

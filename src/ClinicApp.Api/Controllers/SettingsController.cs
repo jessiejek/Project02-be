@@ -111,6 +111,33 @@ public class SettingsController(ClinicAppDbContext db) : ControllerBase
     }
     //JJQR - END
 
+    //JJQR - AI (Nov 24, 2026) - Admin > Settings > Consultation: which parts are required to complete a visit (the fee always is). Own endpoint, like auto-paid.
+    public static readonly string[] ConsultRequiredKeys = ["notes", "vitals", "prescription"];
+    public sealed record ConsultRequiredRequest(string[]? Sections);
+
+    [Authorize(Roles = "Admin")]
+    [HttpPut("consult-required")]
+    public async Task<IActionResult> SetConsultRequired(ConsultRequiredRequest request, CancellationToken ct)
+    {
+        var picked = (request.Sections ?? []).Select(s => (s ?? "").Trim().ToLowerInvariant()).Where(s => s.Length > 0).Distinct().ToList();
+        var unknown = picked.Except(ConsultRequiredKeys).ToList();
+        if (unknown.Count > 0) return BadRequest(new { message = "Unknown consultation part: " + string.Join(", ", unknown) });
+        var settings = await db.ClinicSettings.SingleOrDefaultAsync(s => s.Id == 1, ct);
+        if (settings is null) return NotFound();
+        var value = string.Join(",", ConsultRequiredKeys.Where(picked.Contains)); // fixed order; "" = nothing but the fee
+        if (settings.ConsultRequired != value)
+        {
+            settings.ConsultRequired = value;
+            settings.UpdatedByUserId = CurrentUserId();
+            settings.UpdatedAt = DateTimeOffset.UtcNow;
+            ClinicApp.Api.Auditing.AuditLogWriter.Add(db, ClinicApp.Domain.Enums.AuditEntityType.Settings, Guid.Empty, "Consultation required parts", CurrentUserId(),
+                "Required to complete a visit: " + (value.Length == 0 ? "professional fee only" : value.Replace(",", ", ") + ", professional fee"));
+            await db.SaveChangesAsync(ct);
+        }
+        return Ok(new { consult_required = settings.ConsultRequired });
+    }
+    //JJQR - END
+
     private Guid? CurrentUserId()
     {
         var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
