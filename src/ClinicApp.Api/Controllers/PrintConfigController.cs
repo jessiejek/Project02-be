@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 namespace ClinicApp.Api.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(Roles = "Admin,Doctor,Staff")] // reading is for the clinic team only (patients never need it)
 [Route("api/print-config")]
 public class PrintConfigController(ClinicAppDbContext db) : ControllerBase
 {
@@ -28,7 +28,10 @@ public class PrintConfigController(ClinicAppDbContext db) : ControllerBase
 
     public sealed record PrintConfigDto(
         [property: JsonPropertyName("mode")] string Mode,
-        [property: JsonPropertyName("backgrounds")] List<BackgroundInfo> Backgrounds);
+        [property: JsonPropertyName("backgrounds")] List<BackgroundInfo> Backgrounds,
+        [property: JsonPropertyName("disabled")] List<string> Disabled);
+
+    public sealed record SetEnabledRequest([property: JsonPropertyName("enabled")] bool Enabled);
 
     public sealed record SetModeRequest([property: JsonPropertyName("mode")] string Mode);
 
@@ -43,7 +46,9 @@ public class PrintConfigController(ClinicAppDbContext db) : ControllerBase
         if (mode is null || !Modes.Contains(mode)) mode = "computer";
         var bgs = rows.Where(r => r.Key.StartsWith("bg:") && r.Size > 0)
             .Select(r => new BackgroundInfo(r.Key[3..], r.Version, r.ContentType ?? "image/png", r.Size)).OrderBy(b => b.Kind).ToList();
-        return Ok(new PrintConfigDto(mode, bgs));
+        // a document is ON unless the Admin switched it off ("enabled:<kind>" = "0")
+        var disabled = rows.Where(r => r.Key.StartsWith("enabled:") && r.TextValue == "0").Select(r => r.Key[8..]).Where(k => Kinds.Contains(k)).OrderBy(k => k).ToList();
+        return Ok(new PrintConfigDto(mode, bgs, disabled));
     }
 
     [HttpGet("backgrounds/{kind}")]
@@ -71,6 +76,23 @@ public class PrintConfigController(ClinicAppDbContext db) : ControllerBase
         AuditLogWriter.Add(db, AuditEntityType.Settings, Guid.Empty, "PrintModeChanged", CurrentUserId(), "Print mode: " + mode);
         await db.SaveChangesAsync(ct);
         return Ok(new { mode });
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPut("enabled/{kind}")]
+    public async Task<IActionResult> SetEnabled(string kind, SetEnabledRequest request, CancellationToken ct)
+    {
+        if (!Kinds.Contains(kind)) return NotFound(new { message = "Unknown document." });
+        var key = "enabled:" + kind;
+        var row = await db.PrintConfigs.SingleOrDefaultAsync(c => c.Key == key, ct);
+        if (row is null) db.PrintConfigs.Add(row = new PrintConfig { Key = key });
+        row.TextValue = request.Enabled ? "1" : "0";
+        row.Version++;
+        row.UpdatedAt = DateTimeOffset.UtcNow;
+        row.UpdatedByUserId = CurrentUserId();
+        AuditLogWriter.Add(db, AuditEntityType.Settings, Guid.Empty, "PrintDocumentToggled", CurrentUserId(), $"{kind}: printing {(request.Enabled ? "on" : "off")}");
+        await db.SaveChangesAsync(ct);
+        return Ok(new { kind, enabled = request.Enabled });
     }
 
     [Authorize(Roles = "Admin")]
