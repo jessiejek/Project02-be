@@ -29,7 +29,10 @@ public class PrintConfigController(ClinicAppDbContext db) : ControllerBase
     public sealed record PrintConfigDto(
         [property: JsonPropertyName("mode")] string Mode,
         [property: JsonPropertyName("backgrounds")] List<BackgroundInfo> Backgrounds,
-        [property: JsonPropertyName("disabled")] List<string> Disabled);
+        [property: JsonPropertyName("disabled")] List<string> Disabled,
+        [property: JsonPropertyName("labTests")] List<string>? LabTests);
+
+    public sealed record SetLabTestsRequest([property: JsonPropertyName("tests")] List<string>? Tests);
 
     public sealed record SetEnabledRequest([property: JsonPropertyName("enabled")] bool Enabled);
 
@@ -48,7 +51,15 @@ public class PrintConfigController(ClinicAppDbContext db) : ControllerBase
             .Select(r => new BackgroundInfo(r.Key[3..], r.Version, r.ContentType ?? "image/png", r.Size)).OrderBy(b => b.Kind).ToList();
         // a document is ON unless the Admin switched it off ("enabled:<kind>" = "0")
         var disabled = rows.Where(r => r.Key.StartsWith("enabled:") && r.TextValue == "0").Select(r => r.Key[8..]).Where(k => Kinds.Contains(k)).OrderBy(k => k).ToList();
-        return Ok(new PrintConfigDto(mode, bgs, disabled));
+        // the tests printed on the lab request: null = the clinic's printed pad list (the apps hold that default)
+        var labJson = await db.PrintConfigs.AsNoTracking().Where(c => c.Key == "lab-tests" && c.Data != null).Select(c => c.Data).SingleOrDefaultAsync(ct);
+        List<string>? labTests = null;
+        if (labJson is { Length: > 0 })
+        {
+            try { labTests = System.Text.Json.JsonSerializer.Deserialize<List<string>>(labJson); } catch (System.Text.Json.JsonException) { labTests = null; }
+            if (labTests is { Count: 0 }) labTests = null;
+        }
+        return Ok(new PrintConfigDto(mode, bgs, disabled, labTests));
     }
 
     [HttpGet("backgrounds/{kind}")]
@@ -76,6 +87,54 @@ public class PrintConfigController(ClinicAppDbContext db) : ControllerBase
         AuditLogWriter.Add(db, AuditEntityType.Settings, Guid.Empty, "PrintModeChanged", CurrentUserId(), "Print mode: " + mode);
         await db.SaveChangesAsync(ct);
         return Ok(new { mode });
+    }
+
+    public const int MaxLabTests = 26;
+    public const int MaxLabTestName = 40;
+
+    [Authorize(Roles = "Admin")]
+    [HttpPut("lab-tests")]
+    public async Task<IActionResult> SetLabTests(SetLabTestsRequest request, CancellationToken ct)
+    {
+        var clean = new List<string>();
+        foreach (var raw in request.Tests ?? [])
+        {
+            var t = System.Text.RegularExpressions.Regex.Replace(raw ?? "", @"\s+", " ").Trim();
+            if (t.Length == 0) continue;
+            if (t.Length > MaxLabTestName) return BadRequest(new { message = $"A test name can have at most {MaxLabTestName} characters." });
+            if (t.Any(char.IsControl)) return BadRequest(new { message = "A test name cannot contain special characters." });
+            if (!clean.Contains(t, StringComparer.OrdinalIgnoreCase)) clean.Add(t);
+        }
+        if (clean.Count == 0) return BadRequest(new { message = "Add at least one test, or use “Back to default”." });
+        if (clean.Count > MaxLabTests) return BadRequest(new { message = $"The lab request can list at most {MaxLabTests} tests." });
+        var row = await db.PrintConfigs.SingleOrDefaultAsync(c => c.Key == "lab-tests", ct);
+        if (row is null) db.PrintConfigs.Add(row = new PrintConfig { Key = "lab-tests" });
+        row.ContentType = "application/json";
+        row.Data = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(clean);
+        row.Version++;
+        row.UpdatedAt = DateTimeOffset.UtcNow;
+        row.UpdatedByUserId = CurrentUserId();
+        AuditLogWriter.Add(db, AuditEntityType.Settings, Guid.Empty, "LabRequestTestsSet", CurrentUserId(), $"{clean.Count} tests: {string.Join(", ", clean)}");
+        await db.SaveChangesAsync(ct);
+        return Ok(new { tests = clean });
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpDelete("lab-tests")]
+    public async Task<IActionResult> ResetLabTests(CancellationToken ct)
+    {
+        var row = await db.PrintConfigs.SingleOrDefaultAsync(c => c.Key == "lab-tests", ct);
+        if (row is { Data: not null })
+        {
+            row.Data = null;
+            row.ContentType = null;
+            row.Version++;
+            row.UpdatedAt = DateTimeOffset.UtcNow;
+            row.UpdatedByUserId = CurrentUserId();
+            AuditLogWriter.Add(db, AuditEntityType.Settings, Guid.Empty, "LabRequestTestsReset", CurrentUserId(), "Back to the printed pad list");
+            await db.SaveChangesAsync(ct);
+        }
+        return Ok(new { tests = (string[]?)null });
     }
 
     [Authorize(Roles = "Admin")]
