@@ -2722,6 +2722,45 @@ namespace ClinicApp.Infrastructure.Migrations
                     b.HasAnnotation("Relational:JsonPropertyName", "prescription_template_items");
                 });
 
+            modelBuilder.Entity("ClinicApp.Domain.Entities.PrintConfig", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("content_type");
+
+                    b.Property<byte[]>("Data")
+                        .HasColumnType("varbinary(max)")
+                        .HasColumnName("data");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("text_value");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by_user_id");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int")
+                        .HasColumnName("version");
+
+                    b.HasKey("Key")
+                        .HasName("pk_print_configs");
+
+                    b.ToTable("print_configs", (string)null);
+                });
+
             modelBuilder.Entity("ClinicApp.Domain.Entities.Profile", b =>
                 {
                     b.Property<Guid>("Id")

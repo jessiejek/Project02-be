@@ -31,6 +31,21 @@ public class Announcement : IHasUpdatedAt
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+//JJQR - AI (Nov 24, 2026) - owner wishlist: clinic-wide printing settings. One small table, NOT part of sync (the apps fetch it and keep their own copy):
+//   key "mode"            -> text_value = computer | pdf | native | off      ("computer" = each computer keeps deciding, the old behaviour)
+//   key "bg:<kind>"       -> a PNG/JPG background for one document (prescription, lab_request, medical_certificate, queue_slip, receipt); version goes up on every change
+public class PrintConfig
+{
+    public string Key { get; set; } = "";
+    public string? TextValue { get; set; }
+    public string? ContentType { get; set; }
+    public byte[]? Data { get; set; }
+    public int Version { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public Guid? UpdatedByUserId { get; set; }
+}
+//JJQR - END
+
 /// <summary>Singleton row, Id = 1.</summary>
 public class ClinicSetting
 {

@@ -78,6 +78,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
     public DbSet<DataRequest> DataRequests => Set<DataRequest>();
     // JJQR - END
     public DbSet<ClinicSetting> ClinicSettings => Set<ClinicSetting>();
+    public DbSet<PrintConfig> PrintConfigs => Set<PrintConfig>(); //JJQR - AI (Nov 24, 2026) - print settings and backgrounds //JJQR - END
     public DbSet<ClinicOperatingHour> ClinicOperatingHours => Set<ClinicOperatingHour>();
     public DbSet<ClinicAcceptedPaymentMethod> ClinicAcceptedPaymentMethods => Set<ClinicAcceptedPaymentMethod>();
 
@@ -459,6 +460,7 @@ public class ClinicAppDbContext(DbContextOptions<ClinicAppDbContext> options) : 
         });
         // JJQR - END
         modelBuilder.Entity<ClinicSetting>(e => e.HasKey(c => c.Id));
+        modelBuilder.Entity<PrintConfig>(e => { e.HasKey(c => c.Key); e.Property(c => c.Key).HasMaxLength(40); e.Property(c => c.TextValue).HasMaxLength(40); e.Property(c => c.ContentType).HasMaxLength(40); }); //JJQR - AI (Nov 24, 2026) //JJQR - END
         modelBuilder.Entity<ClinicOperatingHour>(e =>
         {
             e.HasKey(h => h.DayOfWeek);
