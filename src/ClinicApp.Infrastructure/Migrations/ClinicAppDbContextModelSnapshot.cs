@@ -478,6 +478,10 @@ namespace ClinicApp.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("address");
 
+                    b.Property<bool>("AutoPaidOnComplete")
+                        .HasColumnType("bit")
+                        .HasColumnName("auto_paid_on_complete");
+
                     b.Property<string>("ClinicName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
@@ -570,6 +574,7 @@ namespace ClinicApp.Infrastructure.Migrations
                         {
                             Id = (short)1,
                             Address = "3ML Quezon National Highway, Buaya, Lapu-Lapu City",
+                            AutoPaidOnComplete = false,
                             ClinicName = "Grace Medical Clinic",
                             ConsentVersion = 1,
                             ContactNumber = "09285612976",

@@ -75,6 +75,11 @@ public class ClinicSetting
     /// <summary>Working assumption (§16.6): senior/PWD pay −20% of the total.</summary>
     public decimal DiscountPct { get; set; } = 0.20m;
 
+    //JJQR - AI (Nov 24, 2026) - owner: the Admin can choose to have a visit marked PAID (cash, exact fee) the moment the doctor completes it, so the front desk does not click "Record payment". Off by default.
+    // Changed only through PUT api/settings/auto-paid-on-complete (the full settings save never touches it, so an older app saving the form cannot switch it off).
+    public bool AutoPaidOnComplete { get; set; }
+    //JJQR - END
+
     public Guid? UpdatedByUserId { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

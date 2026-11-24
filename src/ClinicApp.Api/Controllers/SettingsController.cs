@@ -88,6 +88,29 @@ public class SettingsController(ClinicAppDbContext db) : ControllerBase
         return Ok(settings);
     }
 
+    //JJQR - AI (Nov 24, 2026) - owner: Admin > Settings > Payments switch "Mark the visit paid when the doctor completes it". Its own small endpoint so the full settings save
+    // (older apps send the whole form without this field) can never switch it off by accident.
+    public sealed record AutoPaidRequest(bool Enabled);
+
+    [Authorize(Roles = "Admin")]
+    [HttpPut("auto-paid-on-complete")]
+    public async Task<IActionResult> SetAutoPaidOnComplete(AutoPaidRequest request, CancellationToken ct)
+    {
+        var settings = await db.ClinicSettings.SingleOrDefaultAsync(s => s.Id == 1, ct);
+        if (settings is null) return NotFound();
+        if (settings.AutoPaidOnComplete != request.Enabled)
+        {
+            settings.AutoPaidOnComplete = request.Enabled;
+            settings.UpdatedByUserId = CurrentUserId();
+            settings.UpdatedAt = DateTimeOffset.UtcNow;
+            ClinicApp.Api.Auditing.AuditLogWriter.Add(db, ClinicApp.Domain.Enums.AuditEntityType.Settings, Guid.Empty, "Auto-paid on complete", CurrentUserId(),
+                request.Enabled ? "Visits are marked paid when the doctor completes them" : "Visits wait for the front desk to record payment");
+            await db.SaveChangesAsync(ct);
+        }
+        return Ok(new { auto_paid_on_complete = settings.AutoPaidOnComplete });
+    }
+    //JJQR - END
+
     private Guid? CurrentUserId()
     {
         var sub = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;

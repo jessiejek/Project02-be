@@ -288,6 +288,14 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
             return BadRequest(new { message = illegal });
         b.Status = status;
         b.UpdatedAt = DateTimeOffset.UtcNow;
+        //JJQR - AI (Nov 24, 2026) - owner: Admin setting "Mark the visit paid when the doctor completes it" (off by default; see Billing/AutoPaidOnComplete)
+        Guid? autoPaid = null;
+        if (status == BookingStatus.Completed)
+        {
+            var userId = Guid.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (Guid?)null;
+            autoPaid = await ClinicApp.Api.Billing.AutoPaidOnComplete.ApplyAsync(db, b.BookingId, userId, b.UpdatedAt, ct);
+        }
+        //JJQR - END
         await db.SaveChangesAsync(ct);
 
         await BroadcastAsync("QueueUpdated", b.DoctorId, new
@@ -296,6 +304,10 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
             doctor_id = b.DoctorId,
             status = b.Status.ToString()
         });
+        //JJQR - AI (Nov 24, 2026) - the payments screens refresh like after "Record payment"
+        if (autoPaid is { } paymentId)
+            await BroadcastAsync("PaymentUpdated", b.DoctorId, new { booking_id = b.BookingId, payment_id = paymentId, status = PaymentStatus.Paid.ToString() });
+        //JJQR - END
 
         return Ok(b);
     }
