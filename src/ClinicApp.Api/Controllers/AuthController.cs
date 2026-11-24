@@ -88,6 +88,10 @@ public class AuthController(
     [HttpPost("register")]
     public async Task<ActionResult<AuthSessionDto>> Register(RegisterRequest request, CancellationToken ct)
     {
+        //JJQR - AI (Nov 24, 2026) - owner: the buyer said no online booking, so patients cannot sign themselves up any more. Closed by default; set the host variable Registration__PatientSelfSignUp=true to open it again. (Local development and the automated tests stay open.)
+        if (!environment.IsDevelopment() && !environment.IsEnvironment("Testing") && !string.Equals(configuration["Registration:PatientSelfSignUp"], "true", StringComparison.OrdinalIgnoreCase))
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Online patient registration is closed. Please register at the clinic's front desk." });
+        //JJQR - END
         var email = request.Email.Trim().ToLower();
         if (await db.Users.AnyAsync(u => u.Email == email, ct))
         {
