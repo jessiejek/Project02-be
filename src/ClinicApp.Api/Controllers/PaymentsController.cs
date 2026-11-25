@@ -234,6 +234,17 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         var illegal = PaymentStatusMachine.RejectReason(payment.Status, PaymentStatus.Paid);
         if (illegal is not null) return BadRequest(new { message = illegal });
 
+        //JJQR - AI (Nov 25, 2026) - code review (race / double payment): two taps or two devices at once must give ONE Paid and ONE audit row. Inside one
+        // transaction, first CLAIM the row with a conditional UPDATE (still Unpaid AND the row_version we read); only the request whose claim hits 1 row goes
+        // on, any other gets 409. The claim bumps row_version by 1, which is exactly what the normal save below writes, so sync numbering stays the same.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var seenVersion = payment.RowVersion;
+        var claimed = await db.Payments
+            .Where(p => p.PaymentId == payment.PaymentId && p.Status == PaymentStatus.Unpaid && p.RowVersion == seenVersion)
+            .ExecuteUpdateAsync(set => set.SetProperty(p => p.RowVersion, p => p.RowVersion + 1), ct);
+        if (claimed != 1)
+            return Conflict(new { error = "not_unpaid", message = "This visit is no longer unpaid (it was just recorded)." });
+        //JJQR - END
         var userId = CurrentUserId();
         payment.Status = PaymentStatus.Paid;
         payment.PaymentMethod = PaymentMethod.Cash;
@@ -248,6 +259,7 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         AuditLogWriter.Add(db, AuditEntityType.Payment, payment.PaymentId, "Paid (marked by doctor)", userId,
             $"₱{payment.Amount:0.##} cash marked received by the doctor on the dashboard; no OR number.");
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct); //JJQR - AI (Nov 25, 2026) - code review: claim + save + audit commit together //JJQR - END
 
         await BroadcastAsync(booking.DoctorId, new { booking_id = booking.BookingId, payment_id = payment.PaymentId, status = payment.Status.ToString() }, ct);
         return Ok(payment);

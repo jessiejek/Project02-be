@@ -102,5 +102,34 @@ public class DoctorReceivedTests(ApiFixture api) : ApiTestBase(api)
         await ShouldBe(HttpStatusCode.OK, await doc.PostAsync(Url(booking), null));
         Assert.Equal(PaymentStatus.Paid, (await PaymentOf(booking)).Status);
     }
+
+    //JJQR - AI (Nov 25, 2026) - code review: two requests at the same time (double tap / two devices) → exactly one Paid, one 200, one audit row
+    [Fact]
+    public async Task Two_requests_at_once_record_the_payment_once()
+    {
+        var booking = await CompletedUnpaid();
+        using var a = DocA();
+        using var b = DocA();
+        var results = await Task.WhenAll(
+            a.PostAsync(Url(booking), ApiFactory.Body(new { amount = 450m })),
+            b.PostAsync(Url(booking), ApiFactory.Body(new { amount = 450m })),
+            a.PostAsync(Url(booking), ApiFactory.Body(new { amount = 450m })));
+        Assert.Equal(1, results.Count(r => r.StatusCode == HttpStatusCode.OK));
+        Assert.All(results.Where(r => r.StatusCode != HttpStatusCode.OK), r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode));
+        var p = await PaymentOf(booking);
+        Assert.Equal(PaymentStatus.Paid, p.Status);
+        Assert.Single(await WithDb(db => db.AuditLogs.AsNoTracking().Where(x => x.EntityId == p.PaymentId && x.Action == "Paid (marked by doctor)").ToListAsync()));
+    }
+
+    [Fact]
+    public async Task The_sync_row_version_moves_by_one_like_any_other_save()
+    {
+        var booking = await CompletedUnpaid();
+        var before = (await PaymentOf(booking)).RowVersion;
+        using var doc = DocA();
+        await ShouldBe(HttpStatusCode.OK, await doc.PostAsync(Url(booking), ApiFactory.Body(new { amount = 450m })));
+        Assert.Equal(before + 1, (await PaymentOf(booking)).RowVersion);
+    }
+    //JJQR - END
 }
 //JJQR - END
