@@ -147,6 +147,11 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         }
         //JJQR - END
 
+        //JJQR - AI (Nov 25, 2026) - owner ("just trap the 2nd transaction"): a payment that is already Paid (e.g. the doctor just tapped Mark received while
+        // this Record payment form was open) is refused with 409 and nothing changes. Before, Paid → Paid passed the state machine and overwrote it.
+        if (payment.Status == PaymentStatus.Paid)
+            return Conflict(new { error = "not_unpaid", status = payment.Status.ToString(), message = NoLongerUnpaid });
+        //JJQR - END
         var illegalConfirm = PaymentStatusMachine.RejectReason(payment.Status, PaymentStatus.Paid);
         if (illegalConfirm is not null)
             return BadRequest(new { message = illegalConfirm });
@@ -173,6 +178,12 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         }
         //JJQR - END
 
+        //JJQR - AI (Nov 25, 2026) - owner ("just trap the 2nd transaction"): same guard as doctor Mark received. Inside one transaction CLAIM the row (still
+        // Unpaid AND the row_version we read); whichever of two simultaneous saves (staff + staff, or staff + doctor) loses the claim gets 409 and changes nothing.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (!await ClaimUnpaidAsync(payment, ct))
+            return Conflict(new { error = "not_unpaid", message = NoLongerUnpaid });
+        //JJQR - END
         payment.Status = PaymentStatus.Paid;
         payment.PaymentMethod = request.PaymentMethod;
         payment.ReferenceNumber = request.ReferenceNumber;
@@ -192,6 +203,7 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
             return Conflict(new { error = "or_number_duplicate", message = $"OR number {orNumber} is already used. Enter a different OR number.", or_number = orNumber });
         }
         //JJQR - END
+        await tx.CommitAsync(ct); //JJQR - AI (Nov 25, 2026) - claim + save commit together (a failed save above rolls the claim back) //JJQR - END
         await BroadcastAsync(booking.DoctorId, new
         {
             booking_id = booking.BookingId,
@@ -205,7 +217,21 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
     // the cash, so the payment becomes Paid, Cash, EXACTLY the amount due, no OR number, confirmed by the doctor, with an audit entry. Narrow on purpose (not the
     // staff confirm form): Doctor role only, only the doctor's OWN booking, only an Unpaid payment of a Completed visit; same fee reconcile + PaymentStatusMachine
     // as Record payment, same PaymentUpdated broadcast. No receipt number can be typed here (that stays on the front desk / confirm form).
-    public const string DoctorReceivedNote = "Cash received by the doctor (marked on the doctor dashboard).";
+    //JJQR - AI (Nov 25, 2026) - code review + owner: the one "second save loses" guard used by staff Record payment and doctor Mark received. A conditional
+    // UPDATE (Unpaid AND the row_version we read) inside the caller's transaction; true only for the request that claimed the row. The claim bumps
+    // row_version by 1, exactly what the following normal save writes, so sync numbering is unchanged.
+    public const string NoLongerUnpaid = "This visit is no longer unpaid (it was just recorded).";
+    private async Task<bool> ClaimUnpaidAsync(Payment payment, CancellationToken ct)
+    {
+        var seenVersion = payment.RowVersion;
+        var claimed = await db.Payments
+            .Where(p => p.PaymentId == payment.PaymentId && p.Status == PaymentStatus.Unpaid && p.RowVersion == seenVersion)
+            .ExecuteUpdateAsync(set => set.SetProperty(p => p.RowVersion, p => p.RowVersion + 1), ct);
+        return claimed == 1;
+    }
+    //JJQR - END
+
+    public const string DoctorReceivedNote = ClinicApp.Infrastructure.Sync.SyncPushEngine.DoctorMarkedReceivedNote; //JJQR - AI (Nov 25, 2026) - one text, so a synced desktop Mark received is recognised //JJQR - END
 
     [Authorize(Roles = "Doctor")]
     [HttpPost("booking/{bookingId:guid}/doctor-received")]
@@ -238,12 +264,8 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         // transaction, first CLAIM the row with a conditional UPDATE (still Unpaid AND the row_version we read); only the request whose claim hits 1 row goes
         // on, any other gets 409. The claim bumps row_version by 1, which is exactly what the normal save below writes, so sync numbering stays the same.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var seenVersion = payment.RowVersion;
-        var claimed = await db.Payments
-            .Where(p => p.PaymentId == payment.PaymentId && p.Status == PaymentStatus.Unpaid && p.RowVersion == seenVersion)
-            .ExecuteUpdateAsync(set => set.SetProperty(p => p.RowVersion, p => p.RowVersion + 1), ct);
-        if (claimed != 1)
-            return Conflict(new { error = "not_unpaid", message = "This visit is no longer unpaid (it was just recorded)." });
+        if (!await ClaimUnpaidAsync(payment, ct))
+            return Conflict(new { error = "not_unpaid", message = NoLongerUnpaid });
         //JJQR - END
         var userId = CurrentUserId();
         payment.Status = PaymentStatus.Paid;

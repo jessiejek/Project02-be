@@ -131,5 +131,86 @@ public class DoctorReceivedTests(ApiFixture api) : ApiTestBase(api)
         Assert.Equal(before + 1, (await PaymentOf(booking)).RowVersion);
     }
     //JJQR - END
+
+    //JJQR - AI (Nov 25, 2026) - owner ("just trap the 2nd transaction"): staff Record payment uses the same guard; the second save gets 409 and changes nothing
+    private HttpClient StaffClient() => F.As(W.Staff, "Staff");
+    private static StringContent StaffCash() => ApiFactory.Body(new { payment_method = "Cash", amount_received = 450m });
+
+    [Fact]
+    public async Task Staff_record_payment_and_doctor_mark_received_at_once_record_it_once()
+    {
+        for (var round = 0; round < 6; round++)
+        {
+            var booking = await CompletedUnpaid();
+            var pay = (await PaymentOf(booking)).PaymentId;
+            using var staff = StaffClient();
+            using var doc = DocA();
+            var staffFirst = round % 2 == 0;
+            var calls = staffFirst
+                ? new[] { staff.PostAsync($"/api/payments/{pay}/confirm", StaffCash()), doc.PostAsync(Url(booking), ApiFactory.Body(new { amount = 450m })) }
+                : new[] { doc.PostAsync(Url(booking), ApiFactory.Body(new { amount = 450m })), staff.PostAsync($"/api/payments/{pay}/confirm", StaffCash()) };
+            var results = await Task.WhenAll(calls);
+            Assert.Equal(1, results.Count(r => r.StatusCode == HttpStatusCode.OK));
+            var loser = results.Single(r => r.StatusCode != HttpStatusCode.OK);
+            Assert.Equal(HttpStatusCode.Conflict, loser.StatusCode);
+            Assert.Contains("no longer unpaid", await loser.Content.ReadAsStringAsync());
+            var p = await PaymentOf(booking);
+            Assert.Equal(PaymentStatus.Paid, p.Status);
+            var doctorWon = results[staffFirst ? 1 : 0].StatusCode == HttpStatusCode.OK;
+            var doctorAudits = await WithDb(db => db.AuditLogs.AsNoTracking().CountAsync(x => x.EntityId == p.PaymentId && x.Action == "Paid (marked by doctor)"));
+            Assert.Equal(doctorWon ? 1 : 0, doctorAudits); // one audit row when the doctor's save won, none from the losing request
+            Assert.Equal(doctorWon ? W.DoctorA.UserId : W.Staff.UserId, p.ConfirmedByUserId);
+            Assert.Equal(doctorWon, p.ConfirmNotes == ClinicApp.Api.Controllers.PaymentsController.DoctorReceivedNote);
+        }
+    }
+
+    [Fact]
+    public async Task Two_staff_record_payments_at_once_record_it_once()
+    {
+        var booking = await CompletedUnpaid();
+        var pay = (await PaymentOf(booking)).PaymentId;
+        using var a = StaffClient();
+        using var b = StaffClient();
+        var results = await Task.WhenAll(a.PostAsync($"/api/payments/{pay}/confirm", StaffCash()), b.PostAsync($"/api/payments/{pay}/confirm", StaffCash()), a.PostAsync($"/api/payments/{pay}/confirm", StaffCash()));
+        Assert.Equal(1, results.Count(r => r.StatusCode == HttpStatusCode.OK));
+        Assert.All(results.Where(r => r.StatusCode != HttpStatusCode.OK), r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode));
+        Assert.Equal(PaymentStatus.Paid, (await PaymentOf(booking)).Status);
+    }
+
+    [Fact]
+    public async Task Staff_record_payment_after_the_doctor_marked_it_received_is_refused_and_changes_nothing()
+    {
+        var booking = await CompletedUnpaid();
+        using var doc = DocA();
+        await ShouldBe(HttpStatusCode.OK, await doc.PostAsync(Url(booking), ApiFactory.Body(new { amount = 450m })));
+        var before = await PaymentOf(booking);
+        using var staff = StaffClient();
+        var res = await staff.PostAsync($"/api/payments/{before.PaymentId}/confirm", ApiFactory.Body(new { payment_method = "GCash", amount_received = 450m, reference_number = "R9", or_number = "OR-TRAP-1" }));
+        await ShouldBe(HttpStatusCode.Conflict, res);
+        Assert.Contains("This visit is no longer unpaid (it was just recorded).", await res.Content.ReadAsStringAsync());
+        var after = await PaymentOf(booking);
+        Assert.Equal(before.PaymentMethod, after.PaymentMethod);
+        Assert.Null(after.OrNumber);
+        Assert.Null(after.ReferenceNumber);
+        Assert.Equal(before.ConfirmedByUserId, after.ConfirmedByUserId);
+        Assert.Equal(before.RowVersion, after.RowVersion);
+    }
+
+    [Fact]
+    public async Task Staff_record_payment_still_works_once_and_moves_the_sync_row_version_by_one()
+    {
+        var booking = await CompletedUnpaid();
+        var before = await PaymentOf(booking);
+        using var staff = StaffClient();
+        await ShouldBe(HttpStatusCode.OK, await staff.PostAsync($"/api/payments/{before.PaymentId}/confirm", ApiFactory.Body(new { payment_method = "Cash", amount_received = 450m, or_number = "OR-ONCE-1" })));
+        var after = await PaymentOf(booking);
+        Assert.Equal(PaymentStatus.Paid, after.Status);
+        Assert.Equal("OR-ONCE-1", after.OrNumber);
+        Assert.Equal(W.Staff.UserId, after.ConfirmedByUserId);
+        Assert.Equal(before.RowVersion + 1, after.RowVersion);
+        await ShouldBe(HttpStatusCode.Conflict, await staff.PostAsync($"/api/payments/{before.PaymentId}/confirm", ApiFactory.Body(new { payment_method = "Cash", amount_received = 450m })));
+        Assert.Equal("OR-ONCE-1", (await PaymentOf(booking)).OrNumber);
+    }
+    //JJQR - END
 }
 //JJQR - END

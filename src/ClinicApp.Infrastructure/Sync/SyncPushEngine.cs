@@ -419,6 +419,24 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         return null;
     }
 
+    //JJQR - AI (Nov 25, 2026) - owner (offline desktop Mark received: no local audit row is fine "as long as it is synced"): when a payment recorded on a
+    // computer reaches the cloud as Paid, the cloud writes the audit row, the same kind the online endpoints write. The desktop's Mark received note marks
+    // the doctor's own cash. Written only on the Unpaid → Paid change (or a new Paid row), so a re-sent operation never adds a second row. Additive, no migration.
+    public const string DoctorMarkedReceivedNote = "Cash received by the doctor (marked on the doctor dashboard).";
+    private void AuditSyncedPaid(Payment p, Guid nodeId)
+    {
+        var byDoctor = string.Equals(p.ConfirmNotes, DoctorMarkedReceivedNote, StringComparison.Ordinal);
+        db.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(), EntityType = AuditEntityType.Payment, EntityId = p.PaymentId,
+            Action = byDoctor ? "Paid (marked by doctor, synced from desktop)" : "Paid (synced from desktop)",
+            PerformedByUserId = p.ConfirmedByUserId, PerformedAt = DateTimeOffset.UtcNow,
+            Details = $"₱{p.Amount:0.##} {p.PaymentMethod?.ToString() ?? "unknown method"}" + (p.OrNumber is { Length: > 0 } or ? $", OR {or}" : ", no OR number")
+                + $"; recorded on computer {nodeId}" + (p.ConfirmedAt is { } at ? $" at {at:yyyy-MM-dd HH:mm} UTC" : "") + ".",
+        });
+    }
+    //JJQR - END
+
     // ── payment: single writer ────────────────────────────────────────────
     private static readonly HashSet<string> PaymentFixed = new()
     {
@@ -458,6 +476,7 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             if (incoming.CreatedAt == default) incoming.CreatedAt = DateTimeOffset.UtcNow;
             if (incoming.UpdatedAt == default) incoming.UpdatedAt = incoming.CreatedAt;
             db.Payments.Add(incoming);
+            if (incoming.Status == PaymentStatus.Paid) AuditSyncedPaid(incoming, nodeId); //JJQR - AI (Nov 25, 2026) - owner: an offline payment gets its audit row when it syncs //JJQR - END
             await db.SaveChangesAsync(ct);
             var created = Ok(op, incoming.RowVersion);
             //JJQR - AI (21 Nov 2026) accepted as printed; a duplicate OR is flagged, never dropped or renumbered
@@ -475,10 +494,12 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             return await Done(op, SyncStatuses.Conflict, reason, $"Payment cannot move {existing.Status} → {incoming.Status}; cloud kept.", null, ct);
         }
 
+        var wasUnpaid = existing.Status == PaymentStatus.Unpaid; //JJQR - AI (Nov 25, 2026) - for the synced-payment audit row below //JJQR - END
         var cloudEdited = op.BaseRowVersion is long b && b < existing.RowVersion;
         foreach (var p in values.Keys.Where(p => !PaymentFixed.Contains(SyncRows.Name(p))))
             if (!SyncRows.ServerColumns.Contains(SyncRows.Name(p))) p.PropertyInfo!.SetValue(existing, values[p]);
         existing.OriginNodeId = nodeId; // first node to write it becomes the single writer
+        if (wasUnpaid && existing.Status == PaymentStatus.Paid) AuditSyncedPaid(existing, nodeId); //JJQR - AI (Nov 25, 2026) - owner: offline confirm / Mark received is audited on sync (once: only Unpaid → Paid) //JJQR - END
         if (cloudEdited)
         {
             db.AuditLogs.Add(new AuditLog

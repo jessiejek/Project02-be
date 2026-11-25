@@ -416,6 +416,43 @@ public class SyncTests(ApiFixture api) : ApiTestBase(api)
         Assert.Equal("refund_offline_forbidden", refund.GetProperty("reason_code").GetString());
     }
 
+    //JJQR - AI (Nov 25, 2026) - owner: an offline desktop payment (incl. Mark received, which writes no local audit row) gets its audit row when it syncs; once
+    [Fact]
+    public async Task Payment_confirmed_offline_writes_one_audit_row_when_it_syncs()
+    {
+        using var node = await RegisterNodeAsync();
+        var (bid, pay) = await NodeVisitAsync(node);
+        var row = PaymentRow(pay, bid, "Paid", 450);
+        row["or_number"] = "BK-000123";
+        row["confirmed_by_user_id"] = W.Staff.UserId;
+        Assert.Equal("applied", StatusOf((await PushAsync(node, Op("payment", pay, row, "confirm")))[0]));
+        var audits = await WithDb(db => db.AuditLogs.AsNoTracking().Where(a => a.EntityId == pay && a.Action.StartsWith("Paid (")).ToListAsync());
+        var a = Assert.Single(audits);
+        Assert.Equal("Paid (synced from desktop)", a.Action);
+        Assert.Equal(W.Staff.UserId, a.PerformedByUserId);
+        Assert.Contains("OR BK-000123", a.Details);
+        // the same operation sent again (retry) adds nothing
+        await PushAsync(node, Op("payment", pay, row, "confirm"));
+        Assert.Single(await WithDb(db => db.AuditLogs.AsNoTracking().Where(a => a.EntityId == pay && a.Action.StartsWith("Paid (")).ToListAsync()));
+    }
+
+    [Fact]
+    public async Task Doctor_mark_received_done_offline_is_audited_as_the_doctors_cash_when_it_syncs()
+    {
+        using var node = await RegisterNodeAsync();
+        var (bid, pay) = await NodeVisitAsync(node);
+        var row = PaymentRow(pay, bid, "Paid", 450);
+        row["confirm_notes"] = "Cash received by the doctor (marked on the doctor dashboard)."; // ClinicNode.Core DoctorDashboardService.MarkReceivedNote
+        row["confirmed_by_user_id"] = W.DoctorA.UserId;
+        Assert.Equal("applied", StatusOf((await PushAsync(node, Op("payment", pay, row, "confirm")))[0]));
+        var a = Assert.Single(await WithDb(db => db.AuditLogs.AsNoTracking().Where(x => x.EntityId == pay && x.Action.StartsWith("Paid (")).ToListAsync()));
+        Assert.Equal("Paid (marked by doctor, synced from desktop)", a.Action);
+        Assert.Equal(W.DoctorA.UserId, a.PerformedByUserId);
+        Assert.Contains("no OR number", a.Details);
+        Assert.Equal(ClinicApp.Api.Controllers.PaymentsController.DoctorReceivedNote, ClinicApp.Infrastructure.Sync.SyncPushEngine.DoctorMarkedReceivedNote);
+    }
+    //JJQR - END
+
     [Fact]
     public async Task Payment_has_a_single_writer_node()
     {
