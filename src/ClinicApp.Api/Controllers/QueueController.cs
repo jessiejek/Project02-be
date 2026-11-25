@@ -215,6 +215,109 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
         });
     }
 
+    //JJQR - AI (2026-11-25) - why: GAV-4 (owner approved the "Not finished on an earlier day" mockup). A walk-in left Waiting / On hold / In
+    // consultation when the day ended used to vanish from every Today screen at midnight (the board above is today only) and stayed stuck forever.
+    // This read lists them: live status, a date BEFORE today (Manila), last LeftoverDaysBack days. Scope = the caller's existing today queue: a doctor
+    // sees their own, staff / admin see the whole clinic. Read only, no schema change.
+    public const int LeftoverDaysBack = 30;
+    private static readonly BookingStatus[] LeftoverStatuses = [BookingStatus.CheckedIn, BookingStatus.OnHold, BookingStatus.InProgress];
+
+    [HttpGet("leftovers")]
+    public async Task<ActionResult<object>> GetLeftovers(CancellationToken ct)
+    {
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsDoctor && actor.StaffId is null) return Forbid();
+        var today = ClinicApp.Domain.ClinicClock.Today;
+        var from = today.AddDays(-LeftoverDaysBack);
+        var query = db.Bookings.AsNoTracking()
+            .Where(b => b.AppointmentDate < today && b.AppointmentDate >= from && b.QueueNumber != null
+                && (b.Status == BookingStatus.CheckedIn || b.Status == BookingStatus.OnHold || b.Status == BookingStatus.InProgress));
+        if (actor.IsDoctor) query = query.Where(b => b.DoctorId == actor.StaffId);
+        var rows = await query.Include(b => b.Patient).ToListAsync(ct);
+        var items = rows
+            .OrderByDescending(b => b.AppointmentDate)
+            .ThenBy(b => QueueLane.IsPriority(b.QueueNumber) ? 0 : 1)
+            .ThenBy(b => b.CreatedAt)
+            .Select(b => new
+            {
+                booking_id = b.BookingId,
+                appointment_date = b.AppointmentDate,
+                queue_number = b.QueueNumber,
+                is_priority = QueueLane.IsPriority(b.QueueNumber),
+                patient_id = b.PatientId,
+                patient_name = b.Patient is null ? "" : $"{b.Patient.FirstName} {b.Patient.LastName}".Trim(),
+                patient_code = b.Patient?.PatientCode ?? "",
+                doctor_id = b.DoctorId,
+                status = b.Status.ToString(),
+                visit_type = b.VisitType.ToString(),
+                amount_due = b.AmountDue,
+                checked_in_at = b.CreatedAt,
+                updated_at = b.UpdatedAt,
+                is_walk_in = b.IsWalkIn
+            }).ToList();
+        return Ok(new { today, from, items });
+    }
+
+    // "Move to today": the SAME booking row (its consultation, payment and files stay linked) gets today's date and a NEW queue number for today
+    // (same lane), keeps its status, and an audit row records the old date / number. Race guard: inside one transaction the row is CLAIMED with a
+    // conditional UPDATE (same date, status and row_version we read, like payments' ClaimUnpaid); whoever loses gets 409 and nothing changes.
+    // Offline sync: online-only action (the desktop refuses it offline); the server change bumps row_version once, so nodes pull it, and the sync push
+    // engine no longer lets a node that never saw this change put the old date back (SyncPushEngine, appointment_date rule).
+    public const string LeftoverChanged = "This patient's visit just changed (moved, completed or marked no-show). The list has been refreshed.";
+
+    [HttpPut("{bookingId:guid}/move-to-today")]
+    public async Task<IActionResult> MoveToToday(Guid bookingId, CancellationToken ct)
+    {
+        var seen = await db.Bookings.AsNoTracking().Include(b => b.Patient).SingleOrDefaultAsync(b => b.BookingId == bookingId, ct);
+        if (seen is null) return NotFound();
+        var actor = await actors.ResolveAsync(User, ct);
+        if (actor.IsDoctor && !actor.ActsAsDoctor(seen.DoctorId)) return Forbid();
+        var today = ClinicApp.Domain.ClinicClock.Today;
+        if (seen.AppointmentDate == today && LeftoverStatuses.Contains(seen.Status))
+            return Conflict(new { error = "already_today", message = "This patient is already on today's queue.", queue_number = seen.QueueNumber });
+        if (!LeftoverStatuses.Contains(seen.Status) || seen.AppointmentDate > today)
+            return Conflict(new { error = "not_leftover", message = LeftoverChanged });
+        var name = seen.Patient is null ? "This patient" : $"{seen.Patient.FirstName} {seen.Patient.LastName}".Trim();
+        var other = await db.Bookings.AsNoTracking()
+            .Where(b => b.PatientId == seen.PatientId && b.BookingId != seen.BookingId && b.AppointmentDate == today
+                && (b.Status == BookingStatus.Pending || b.Status == BookingStatus.Confirmed || b.Status == BookingStatus.CheckedIn
+                    || b.Status == BookingStatus.OnHold || b.Status == BookingStatus.InProgress))
+            .Select(b => new { b.QueueNumber }).FirstOrDefaultAsync(ct);
+        if (other is not null)
+            return Conflict(new { error = "already_booked_today", message = $"{name} is already on today's list{(other.QueueNumber is null ? "" : $" as {other.QueueNumber}")}. Mark the earlier visit no-show instead." });
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var claimed = await db.Bookings
+            .Where(b => b.BookingId == bookingId && b.RowVersion == seen.RowVersion && b.AppointmentDate == seen.AppointmentDate && b.Status == seen.Status)
+            .ExecuteUpdateAsync(set => set.SetProperty(b => b.RowVersion, b => b.RowVersion + 1), ct);
+        if (claimed != 1) return Conflict(new { error = "not_leftover", message = LeftoverChanged });
+
+        var newNumber = await QueueSequencer.NextForPatientAsync(db, today, seen.PatientId, seen.DiscountCategory, ct);
+        db.ChangeTracker.Clear();
+        var booking = await db.Bookings.SingleAsync(b => b.BookingId == bookingId, ct);
+        booking.RowVersion = seen.RowVersion; // the save below adds exactly 1 (like any other save), the claim above already wrote that same value
+        var userId = Guid.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : (Guid?)null;
+        booking.AppointmentDate = today;
+        booking.QueueNumber = newNumber;
+        booking.UpdatedAt = DateTimeOffset.UtcNow;
+        AuditLogWriter.Add(db, AuditEntityType.Booking, booking.BookingId, "Moved to today", userId,
+            $"Left over from {seen.AppointmentDate:yyyy-MM-dd} as {seen.QueueNumber} ({seen.Status}); now {today:yyyy-MM-dd} as {newNumber}");
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        await BroadcastAsync("QueueUpdated", booking.DoctorId, new { booking_id = booking.BookingId, doctor_id = booking.DoctorId, status = booking.Status.ToString() });
+        return Ok(new
+        {
+            booking_id = booking.BookingId,
+            appointment_date = booking.AppointmentDate,
+            queue_number = booking.QueueNumber,
+            status = booking.Status.ToString(),
+            previous_date = seen.AppointmentDate,
+            previous_queue_number = seen.QueueNumber
+        });
+    }
+    //JJQR - END
+
     /// <summary>Front desk marks an online booking as arrived (Pending → CheckedIn).</summary>
     [Authorize(Roles = "Admin,Staff")]
     [HttpPut("{bookingId:guid}/check-in")]

@@ -294,6 +294,15 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             else kept.Add("queue_number");
         }
         //JJQR - END
+        //JJQR - AI (2026-11-25) - why: GAV-4 "Move to today" changes a booking's date on the cloud. A node that never saw that change (offline, older
+        // base row_version) must not put the old date back while its other edits still apply; like queue_number, a changed date is taken only from a node
+        // that saw the current cloud copy.
+        if (others.FirstOrDefault(p => SyncRows.Name(p) == "appointment_date") is { } dateProp && op.BaseRowVersion != existing.RowVersion)
+        {
+            others.Remove(dateProp);
+            kept.Add("appointment_date");
+        }
+        //JJQR - END
         if (nodeWins)
         {
             foreach (var p in others) p.PropertyInfo!.SetValue(existing, values[p]);

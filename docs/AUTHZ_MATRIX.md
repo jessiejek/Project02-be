@@ -57,6 +57,8 @@ Legend: **own** = own row only · **any** = every row · **—** = denied · **a
 | `PUT queue/{id}/check-in`, `…/cancel` | — | ✔ | — | ✔ |
 | `PUT queue/{id}/call\|hold\|complete\|no-show` | — | ✔ | own bookings | ✔ |
 | `GET queue` | — | ✔ | ✔ | ✔ |
+| `GET queue/leftovers` (JJQR - AI 2026-11-25: GAV-4 "Not finished on an earlier day" — Waiting / On hold / In consultation, date before today, last 30 days) | — | ✔ whole clinic | **own bookings only** | ✔ whole clinic |
+| `PUT queue/{id}/move-to-today` (JJQR - AI 2026-11-25: GAV-4 — same booking, today's date, new queue number, audit "Moved to today"; 409 if it already changed) | — | ✔ | **own bookings only** | ✔ |
 | `GET bookings/staff/today\|all\|for-payment` | — | ✔ | — | ✔ |
 | `GET bookings/doctor/today\|today-summary\|patients` | — | — | ✔ (own doctor id from JWT) | — |
 

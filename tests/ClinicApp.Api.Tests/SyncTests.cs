@@ -385,6 +385,32 @@ public class SyncTests(ApiFixture api) : ApiTestBase(api)
         Assert.Equal("node note", b.Notes);
     }
 
+    //JJQR - AI (2026-11-25) - why: GAV-4 "Move to today" changes the date on the cloud; a node that never saw it (old base) keeps its other edits but
+    // cannot put the old date back
+    [Fact]
+    public async Task Booking_moved_to_today_on_the_cloud_keeps_its_date_against_an_old_node_copy()
+    {
+        using var node = await RegisterNodeAsync();
+        var pid = await PushNewPatientAsync(node);
+        var bid = Guid.NewGuid();
+        var yesterday = ClinicApp.Domain.ClinicClock.Today.AddDays(-1).ToString("yyyy-MM-dd");
+        var doc0 = BookingDoc(bid, pid, "CheckedIn");
+        ((Dictionary<string, object?>)doc0["booking"]!)["appointment_date"] = yesterday;
+        var created = (await PushAsync(node, Op("booking", bid, doc0, "create")))[0];
+        using (var doc = F.As(W.DoctorA, "Doctor"))
+            await ShouldBe(HttpStatusCode.OK, await doc.PutAsync($"/api/queue/{bid}/move-to-today", null));
+
+        var stale = BookingDoc(bid, pid, "CheckedIn", DateTimeOffset.UtcNow.AddMinutes(1));
+        ((Dictionary<string, object?>)stale["booking"]!)["appointment_date"] = yesterday;
+        ((Dictionary<string, object?>)stale["booking"]!)["notes"] = "node note";
+        var r = (await PushAsync(node, Op("booking", bid, stale, "update", created.GetProperty("row_version").GetInt64())))[0];
+        Assert.Equal("merged", StatusOf(r));
+        var b = await WithDb(db => db.Bookings.AsNoTracking().SingleAsync(x => x.BookingId == bid));
+        Assert.Equal(ClinicApp.Domain.ClinicClock.Today, b.AppointmentDate);
+        Assert.Equal("node note", b.Notes);
+    }
+    //JJQR - END
+
     // ── payment ─────────────────────────────────────────────────────────
     private async Task<(Guid Booking, Guid Payment)> NodeVisitAsync(Node node)
     {
