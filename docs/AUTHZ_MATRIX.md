@@ -65,7 +65,8 @@ Legend: **own** = own row only · **any** = every row · **—** = denied · **a
 | Action | Patient | Staff | Doctor | Admin |
 |---|---|---|---|---|
 | `GET payments/{id}`, `payments/booking/{id}` | own booking | any | any | any |
-| `POST payments/{id}/confirm` | — | ✔ | — | ✔ |
+| `POST payments/{id}/confirm` | — | ✔ | own bookings (since 22 Nov 2026, offline-mode plan 2.4; this row said "—" before) | ✔ |
+| `POST payments/booking/{bookingId}/doctor-received` (JJQR - AI Nov 25, 2026: dashboard "Mark received") | — | — | **own booking only**, Completed visit, payment still Unpaid; records Paid · Cash · exact amount · no OR · confirmed by the doctor · audit "Paid (marked by doctor)"; optional `amount` must equal the amount due (409 if changed / waived / already paid) | — (Admin uses Record payment) |
 | `POST payments/{id}/waive` | — | **only if the doctor already set `pf_decision = 'Waive'` on that consultation** | own bookings | ✔ |
 | `POST payments/{id}/refund` | — | — | — | ✔ |
 

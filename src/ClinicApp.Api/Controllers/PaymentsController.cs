@@ -15,6 +15,9 @@ namespace ClinicApp.Api.Controllers;
 public record ConfirmPaymentRequest(PaymentMethod PaymentMethod, string? ReferenceNumber, string? OrNumber, decimal? AmountReceived, string? ConfirmNotes);
 public record WaivePaymentRequest(string Reason, string? OrNumber = null); //JJQR - AI (21 Nov 2026) optional OR number recorded with the waiver // JJQR - END
 public record RefundPaymentRequest(decimal Amount, string Reason);
+//JJQR - AI (Nov 25, 2026) - doctor "Mark received" on the dashboard: Amount = the amount the doctor saw on screen (refused if it changed meanwhile)
+public record DoctorReceivedRequest(decimal? Amount = null);
+//JJQR - END
 
 [ApiController]
 [Authorize]
@@ -197,6 +200,59 @@ public class PaymentsController(ClinicAppDbContext db, IHubContext<ClinicHub> hu
         }, ct);
         return Ok(payment);
     }
+
+    //JJQR - AI (Nov 25, 2026) - owner (GAV-2 follow-up): on the doctor dashboard's Needs attention a completed, unpaid visit has "Mark received": the doctor took
+    // the cash, so the payment becomes Paid, Cash, EXACTLY the amount due, no OR number, confirmed by the doctor, with an audit entry. Narrow on purpose (not the
+    // staff confirm form): Doctor role only, only the doctor's OWN booking, only an Unpaid payment of a Completed visit; same fee reconcile + PaymentStatusMachine
+    // as Record payment, same PaymentUpdated broadcast. No receipt number can be typed here (that stays on the front desk / confirm form).
+    public const string DoctorReceivedNote = "Cash received by the doctor (marked on the doctor dashboard).";
+
+    [Authorize(Roles = "Doctor")]
+    [HttpPost("booking/{bookingId:guid}/doctor-received")]
+    public async Task<IActionResult> DoctorReceived(Guid bookingId, [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] DoctorReceivedRequest? request, CancellationToken ct)
+    {
+        var booking = await db.Bookings.SingleOrDefaultAsync(b => b.BookingId == bookingId, ct);
+        if (booking is null) return NotFound(new { message = "This visit was not found." });
+        var actor = await actors.ResolveAsync(User, ct);
+        if (!actor.IsDoctor || !actor.ActsAsDoctor(booking.DoctorId)) return Forbid();
+        if (booking.Status != BookingStatus.Completed)
+            return Conflict(new { error = "not_completed", message = "Only a completed visit can be marked received." });
+
+        var now = DateTimeOffset.UtcNow;
+        await ClinicApp.Api.Billing.FeeDecisionReconciler.ReconcileAsync(db, bookingId, now, ct); // follow the doctor's final fee decision first (tracked, saved below)
+        var payment = await db.Payments.SingleOrDefaultAsync(p => p.BookingId == bookingId, ct);
+        if (payment is null) return Conflict(new { error = "no_payment", message = "This visit has no fee to collect." });
+        if (payment.Status != PaymentStatus.Unpaid)
+        {
+            await db.SaveChangesAsync(ct); // keep a healed fee (e.g. now Waived)
+            return Conflict(new { error = "not_unpaid", status = payment.Status.ToString(),
+                message = payment.Status == PaymentStatus.Waived ? "This professional fee was waived, so there is nothing to collect." : "This visit is no longer unpaid (it was already recorded)." });
+        }
+        if (payment.Amount <= 0) return Conflict(new { error = "no_amount", message = "There is no amount due on this visit." });
+        if (request?.Amount is { } seen && seen != payment.Amount)
+            return Conflict(new { error = "amount_changed", amount_due = payment.Amount, message = $"The amount due is now ₱{payment.Amount:0.##}, not ₱{seen:0.##}. Check the visit and try again." });
+        var illegal = PaymentStatusMachine.RejectReason(payment.Status, PaymentStatus.Paid);
+        if (illegal is not null) return BadRequest(new { message = illegal });
+
+        var userId = CurrentUserId();
+        payment.Status = PaymentStatus.Paid;
+        payment.PaymentMethod = PaymentMethod.Cash;
+        payment.ReferenceNumber = null;
+        payment.OrNumber = null;
+        payment.AmountReceived = payment.Amount;
+        payment.ConfirmNotes = DoctorReceivedNote;
+        payment.ConfirmedByUserId = userId;
+        payment.ConfirmedAt = now;
+        booking.AmountDue = 0;
+        booking.UpdatedAt = now;
+        AuditLogWriter.Add(db, AuditEntityType.Payment, payment.PaymentId, "Paid (marked by doctor)", userId,
+            $"₱{payment.Amount:0.##} cash marked received by the doctor on the dashboard; no OR number.");
+        await db.SaveChangesAsync(ct);
+
+        await BroadcastAsync(booking.DoctorId, new { booking_id = booking.BookingId, payment_id = payment.PaymentId, status = payment.Status.ToString() }, ct);
+        return Ok(payment);
+    }
+    //JJQR - END
 
     /// <summary>Waiving a fee is the doctor's call (contract §17.2 #5, roadmap Phase 4d:
     /// waive = Doctor/Admin). Front-desk Staff may only *record* a waiver the doctor already
