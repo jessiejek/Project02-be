@@ -1044,5 +1044,29 @@ public class SyncTests(ApiFixture api) : ApiTestBase(api)
         var after = (await PullAllSinceAsync(node, 0)).Count(c => c.GetProperty("operation").GetString() == "upsert" && c.GetProperty("aggregate").GetString() is "icd10_code" or "medicine" or "lab_test_catalog");
         Assert.True(before == after, $"before {before} after {after}");
     }
+    //JJQR - AI (2026-11-26) - queue blocks retired; old desktops must not raise future days' counters (Nov 26 started at R-041)
+    [Fact]
+    public async Task Queue_blocks_are_retired_410_and_no_counter_moves()
+    {
+        using var node = await RegisterNodeAsync();
+        var withRow = new DateOnly(2099, 4, 1);
+        var noRow = new DateOnly(2099, 4, 2);
+        await WithDb(async db => { db.QueueCounters.Add(new QueueCounter { Date = withRow, Lane = "R", Value = 3 }); await db.SaveChangesAsync(); return 0; });
+
+        foreach (var (day, lane) in new[] { (withRow, "R"), (noRow, "R"), (noRow, "S") })
+        {
+            var res = await node.Client.PostAsync("/api/sync/queue-blocks", Raw(new { date = day.ToString("yyyy-MM-dd"), lane, size = 20 }));
+            await ShouldBe(HttpStatusCode.Gone, res);
+            Assert.Equal("queue_blocks_retired", (await JsonOf(res)).GetProperty("error").GetString());
+        }
+
+        Assert.Equal(3, await WithDb(db => db.QueueCounters.Where(c => c.Date == withRow && c.Lane == "R").Select(c => c.Value).SingleAsync()));
+        Assert.Equal(0, await WithDb(db => db.QueueCounters.CountAsync(c => c.Date == noRow)));
+        Assert.Equal(0, await WithDb(db => db.AuditLogs.CountAsync(a => a.Action == "Queue block reserved" && a.EntityId == node.Id)));
+        // the day still starts at 1 for the next real check-in / booking
+        Assert.Equal("R-001", await WithDb(db => ClinicApp.Infrastructure.QueueSequencer.NextAsync(db, noRow, "R", default)));
+        Assert.Equal("R-004", await WithDb(db => ClinicApp.Infrastructure.QueueSequencer.NextAsync(db, withRow, "R", default)));
+    }
+    //JJQR - END
 }
 //JJQR - END

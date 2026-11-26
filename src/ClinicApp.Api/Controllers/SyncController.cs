@@ -160,6 +160,12 @@ public class SyncController(ClinicAppDbContext db, SyncNodeAuth nodeAuth, IPatie
     public async Task<IActionResult> QueueBlock(QueueBlockRequest request, CancellationToken ct)
     {
         if (ProtocolError() is { } bad) return bad;
+        //JJQR - AI (2026-11-26) - queue blocks retired; old desktops must not raise future days' counters (owner: every day starts at R-001 after 12 midnight).
+        // Desktops before v0.2.42 still ask for 20 numbers per lane for today..today+6 on every sync; that pushed Nov 26 to start at R-041.
+        // Refuse before anything is reserved. Old desktops read a non-success reply as "not reserved" and skip (QueueBlocks.TopUpAsync: block is null -> continue).
+        return StatusCode(StatusCodes.Status410Gone, new { error = "queue_blocks_retired", detail = "Queue number blocks are no longer used; each day starts at 1." });
+#pragma warning disable CS0162 // the old reservation code below is kept (unreachable) so the change stays one line and is easy to undo
+        //JJQR - END
         var lane = request.Lane?.Trim().ToUpperInvariant();
         if (lane is not ("R" or "S")) return BadRequest(new { error = "invalid_request", detail = "lane must be R or S." });
         if (request.Date is not { } day) return BadRequest(new { error = "invalid_request", detail = "date is required (yyyy-MM-dd)." });
@@ -175,6 +181,9 @@ public class SyncController(ClinicAppDbContext db, SyncNodeAuth nodeAuth, IPatie
         });
         await db.SaveChangesAsync(ct);
         return Ok(new { date = day.ToString("yyyy-MM-dd"), lane, from, to, size, first = QueueLane.Format(lane, from), last = QueueLane.Format(lane, to) });
+        //JJQR - AI (2026-11-26) - queue blocks retired (see top of QueueBlock)
+#pragma warning restore CS0162
+        //JJQR - END
     }
     //JJQR - END
 
