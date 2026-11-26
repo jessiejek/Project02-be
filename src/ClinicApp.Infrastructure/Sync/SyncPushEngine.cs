@@ -303,6 +303,15 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             kept.Add("appointment_date");
         }
         //JJQR - END
+        //JJQR - AI (2026-11-26) - GAV-11 why: "Wrong patient?" moves a visit to another patient on the cloud. A computer that never saw that move must
+        // not put the visit back on the first patient; a different patient_id is never taken from a push (the move is an online action only).
+        if (others.FirstOrDefault(p => SyncRows.Name(p) == "patient_id") is { } patientProp)
+        {
+            others.Remove(patientProp);
+            kept.Add("patient_id");
+            reason ??= SyncReasons.PatientReassigned;
+        }
+        //JJQR - END
         if (nodeWins)
         {
             foreach (var p in others) p.PropertyInfo!.SetValue(existing, values[p]);
@@ -544,6 +553,11 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         {
             if (!await db.Bookings.AnyAsync(b => b.BookingId == incoming.BookingId, ct))
                 return Fail(op, SyncStatuses.Retry, SyncReasons.MissingDependency, "Booking not in the cloud yet.");
+            //JJQR - AI (2026-11-26) - GAV-11 why: the booking is the source of truth for who a visit is for (it may have been moved to another patient)
+            var bookingPatient = await db.Bookings.AsNoTracking().Where(b => b.BookingId == incoming.BookingId).Select(b => b.PatientId).SingleAsync(ct);
+            var newPatientKept = incoming.PatientId != bookingPatient;
+            incoming.PatientId = bookingPatient;
+            //JJQR - END
             var sameBooking = await db.Consultations.FirstOrDefaultAsync(c => c.BookingId == incoming.BookingId, ct);
             if (sameBooking is not null)
             {
@@ -558,6 +572,10 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             await db.SaveChangesAsync(ct);
             await ReplaceChildrenAsync(incoming, op.Data, ct);
             await db.SaveChangesAsync(ct);
+            //JJQR - AI (2026-11-26) - GAV-11: tell the computer the cloud's patient so it updates its copy
+            if (newPatientKept)
+                return await Done(op, SyncStatuses.Merged, SyncReasons.PatientReassigned, "This visit belongs to another patient in the cloud; the cloud's patient was kept.", ["patient_id"], ct);
+            //JJQR - END
             return Ok(op, incoming.RowVersion);
         }
 
@@ -566,10 +584,17 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             return await AmendAsync(nodeId, op, existing, incoming, values, ct);
         //JJQR - END
 
-        SyncRows.Set(existing, values, col => col is not ("consultation_id" or "booking_id" or "created_at"));
+        //JJQR - AI (2026-11-26) - GAV-11 why: a computer holding an unsent draft made before "Wrong patient?" must not move the visit back: patient_id stays the cloud's
+        var draftPatientKept = values.Keys.Any(k => SyncRows.Name(k) == "patient_id") && incoming.PatientId != existing.PatientId;
+        SyncRows.Set(existing, values, col => col is not ("consultation_id" or "booking_id" or "created_at" or "patient_id"));
+        //JJQR - END
         db.Entry(existing).State = EntityState.Modified;
         await ReplaceChildrenAsync(existing, op.Data, ct);
         await db.SaveChangesAsync(ct);
+        //JJQR - AI (2026-11-26) - GAV-11
+        if (draftPatientKept)
+            return await Done(op, SyncStatuses.Merged, SyncReasons.PatientReassigned, "This visit belongs to another patient in the cloud; the cloud's patient was kept.", ["patient_id"], ct);
+        //JJQR - END
         return Ok(op, existing.RowVersion);
     }
 
@@ -591,9 +616,15 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
                 "Consultation is already completed in the cloud; finished consultations are immutable (send status Amended to amend it).", null, ct);
 
         bool Has(string col) => values.Keys.Any(k => SyncRows.Name(k) == col);
-        if ((Has("patient_id") && incoming.PatientId != existing.PatientId) || (Has("doctor_id") && incoming.DoctorId != existing.DoctorId)
+        //JJQR - AI (2026-11-26) - GAV-11 why: after "Wrong patient?" a computer may still hold the patient the visit was moved AWAY from. That stale
+        // patient_id is never applied (AmendFixed) and no longer blocks the doctor's amendment. Any other patient / doctor / booking change is still refused.
+        var stalePatientAfterMove = Has("patient_id") && incoming.PatientId != existing.PatientId
+            && await db.AuditLogs.AsNoTracking().AnyAsync(a => a.EntityType == AuditEntityType.Consultation && a.EntityId == existing.ConsultationId
+                && a.Action == "Wrong patient fixed" && a.Details != null && a.Details.Contains(incoming.PatientId.ToString()), ct);
+        if ((Has("patient_id") && incoming.PatientId != existing.PatientId && !stalePatientAfterMove) || (Has("doctor_id") && incoming.DoctorId != existing.DoctorId)
             || (Has("booking_id") && incoming.BookingId != existing.BookingId))
             return Fail(op, SyncStatuses.Rejected, SyncReasons.InvalidPayload, "patient_id, doctor_id and booking_id cannot change in an amendment.");
+        //JJQR - END
 
         var idText = SyncAggregates.Id(existing.ConsultationId);
         var lastWriter = await db.SyncChanges.AsNoTracking()
@@ -731,27 +762,28 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
     private async Task ReplaceChildrenAsync(Consultation c, JsonElement doc, CancellationToken ct)
     {
         var cid = c.ConsultationId;
+        var pid = c.PatientId; //JJQR - AI (2026-11-26) - GAV-11 why: every child row belongs to the consultation's (cloud) patient, never a stale one from the computer //JJQR - END
         if (doc.TryGetProperty("diagnoses", out var dx))
             await ReplaceSetAsync(await db.ConsultationDiagnoses.Where(x => x.ConsultationId == cid).ToListAsync(ct), dx,
                 x => x.Id, x => x.ConsultationId = cid, ct);
         if (doc.TryGetProperty("lab_orders", out var labs))
             await ReplaceSetAsync(await db.LabOrders.Where(x => x.ConsultationId == cid).ToListAsync(ct), labs,
-                x => x.LabOrderId, x => x.ConsultationId = cid, ct);
+                x => x.LabOrderId, x => { x.ConsultationId = cid; x.PatientId = pid; }, ct);
         if (doc.TryGetProperty("vaccinations", out var vax))
             await ReplaceSetAsync(await db.PatientVaccinations.Where(x => x.ConsultationId == cid).ToListAsync(ct), vax,
-                x => x.Id, x => x.ConsultationId = cid, ct);
+                x => x.Id, x => { x.ConsultationId = cid; x.PatientId = pid; }, ct);
         if (doc.TryGetProperty("follow_up", out var fu))
             await ReplaceSetAsync(await db.FollowUps.Where(x => x.ConsultationId == cid).ToListAsync(ct), AsArray(fu),
-                x => x.Id, x => x.ConsultationId = cid, ct);
+                x => x.Id, x => { x.ConsultationId = cid; x.PatientId = pid; }, ct);
         if (doc.TryGetProperty("medical_certificate", out var mc))
             await ReplaceSetAsync(await db.MedicalCertificates.Where(x => x.ConsultationId == cid).ToListAsync(ct), AsArray(mc),
-                x => x.CertificateId, x => x.ConsultationId = cid, ct);
+                x => x.CertificateId, x => { x.ConsultationId = cid; x.PatientId = pid; }, ct);
         if (doc.TryGetProperty("prescription", out var rx))
         {
             var groups = await db.PrescriptionGroups.Where(g => g.BookingId == c.BookingId).ToListAsync(ct);
             JsonElement groupEl = default, linesEl = default;
             var hasGroup = rx.ValueKind == JsonValueKind.Object && rx.TryGetProperty("group", out groupEl) && groupEl.ValueKind == JsonValueKind.Object;
-            await ReplaceSetAsync(groups, hasGroup ? AsArray(groupEl) : AsArray(default), g => g.GroupId, g => g.BookingId = c.BookingId, ct);
+            await ReplaceSetAsync(groups, hasGroup ? AsArray(groupEl) : AsArray(default), g => g.GroupId, g => { g.BookingId = c.BookingId; g.PatientId = pid; }, ct); //JJQR - AI (2026-11-26) - GAV-11 patient from the consultation //JJQR - END
             if (hasGroup)
             {
                 var gid = SyncRows.New<PrescriptionGroup>(db, groupEl).GroupId;
@@ -824,6 +856,9 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
                 "This vital was already recorded for the visit.", ct);
         if (!await db.Bookings.AnyAsync(b => b.BookingId == r.BookingId, ct))
             return Fail(op, SyncStatuses.Retry, SyncReasons.MissingDependency, "Booking not in the cloud yet.");
+        //JJQR - AI (2026-11-26) - GAV-11 why: a reading belongs to the visit's (cloud) patient, even if the visit was moved after the computer recorded it
+        r.PatientId = await db.Bookings.AsNoTracking().Where(b => b.BookingId == r.BookingId).Select(b => b.PatientId).SingleAsync(ct);
+        //JJQR - END
         if (r.CreatedAt == default) r.CreatedAt = DateTimeOffset.UtcNow;
         if (r.UpdatedAt == default) r.UpdatedAt = r.CreatedAt;
         db.PatientVitalReadings.Add(r);

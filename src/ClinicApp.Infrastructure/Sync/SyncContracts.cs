@@ -44,6 +44,9 @@ public static class SyncReasons
     //JJQR - AI (21 Nov 2026) a printed queue number is shared with another booking: both kept as printed (never renumbered), flagged for desk review
     public const string QueueNumberClash = "queue_number_clash";
     //JJQR - END
+    //JJQR - AI (2026-11-26) - GAV-11: a visit was moved to another patient on the cloud ("Wrong patient?"); a push never moves it back
+    public const string PatientReassigned = "patient_reassigned";
+    //JJQR - END
     //JJQR - AI (Nov 21, 2026) offline self-edits (doctor / doctor_schedule / doctor_blocked_date)
     public const string ActorRequired = "actor_required";
     public const string ActorUnknown = "actor_unknown";

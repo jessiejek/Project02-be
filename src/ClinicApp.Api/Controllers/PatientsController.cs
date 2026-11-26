@@ -262,6 +262,15 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
                 UpdatedAt = now,
             });
         }
+        //JJQR - AI (2026-11-26) - GAV-11 why: the list is replaced as a whole, which used to stamp EVERY allergy with today's date. An allergy that was
+        // already on file keeps its first created_at, so "added during this visit" (the wrong-patient fix moves those) means what it says.
+        foreach (var r in rows)
+        {
+            var key = r.IsNkda ? "\u0000nkda" : r.Allergen.Trim().ToLowerInvariant();
+            var was = existing.FirstOrDefault(e => e.Id == r.Id) ?? existing.FirstOrDefault(e => (e.IsNkda ? "\u0000nkda" : e.Allergen.Trim().ToLowerInvariant()) == key);
+            if (was is not null && was.CreatedAt != default) r.CreatedAt = was.CreatedAt;
+        }
+        //JJQR - END
         db.PatientAllergies.AddRange(rows);
         await db.SaveChangesAsync(ct);
         return Ok(await db.PatientAllergies.AsNoTracking().Where(a => a.PatientId == id).OrderBy(a => a.Allergen).ToListAsync(ct));
