@@ -783,10 +783,20 @@ public class SyncTests(ApiFixture api) : ApiTestBase(api)
         Assert.Equal("payment_settled", r.GetProperty("reason_code").GetString());
         Assert.Equal(ConsultationStatus.Completed, await WithDb(db => db.Consultations.Where(c => c.ConsultationId == v.Cid).Select(c => c.Status).SingleAsync()));
 
+        //JJQR - AI (2026-11-26) - GAV-11/12 review 2.1 (owner approved): the patient of a visit is decided by the visit (booking), never by the pushed copy.
+        // A different patient_id in an amendment of the SAME visit is a computer that has not pulled a move / merge yet: it is ignored (the cloud patient
+        // stays), no longer refused. Changing the DOCTOR (or the booking) of a finished visit is still refused.
         var other = ConsultDoc(v.Cid, v.Bid, W.PatientB.RowId, "Amended", "J20.9");
-        var rej = (await PushAsync(node, Op("consultation", v.Cid, other, "update", cur)))[0];
+        var ign = (await PushAsync(node, Op("consultation", v.Cid, other, "update", cur)))[0];
+        Assert.NotEqual("rejected", StatusOf(ign));
+        Assert.Equal(v.Pid, await WithDb(db => db.Consultations.Where(c => c.ConsultationId == v.Cid).Select(c => c.PatientId).SingleAsync()));
+        var cur2 = await WithDb(db => db.Consultations.Where(c => c.ConsultationId == v.Cid).Select(c => c.RowVersion).SingleAsync());
+        var otherDoctor = ConsultDoc(v.Cid, v.Bid, v.Pid, "Amended", "J20.9");
+        ((Dictionary<string, object?>)otherDoctor["consultation"]!)["doctor_id"] = W.DoctorB.RowId;
+        var rej = (await PushAsync(node, Op("consultation", v.Cid, otherDoctor, "update", cur2)))[0];
         Assert.Equal("rejected", StatusOf(rej));
         Assert.Equal("invalid_payload", rej.GetProperty("reason_code").GetString());
+        //JJQR - END
     }
 
     private static Dictionary<string, object?> Allergy(string name, string? reaction = null, bool nkda = false, Guid? id = null) => new()
