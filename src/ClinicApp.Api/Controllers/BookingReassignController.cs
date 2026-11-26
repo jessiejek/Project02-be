@@ -256,19 +256,23 @@ public class BookingReassignController(ClinicAppDbContext db, ActorResolver acto
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
-            await Task.WhenAll(
-                hub.Clients.Group("staff").SendAsync("QueueUpdated", new { booking_id = bookingId, doctor_id = booking.DoctorId, status = booking.Status.ToString() }),
-                hub.Clients.Group($"doctor:{booking.DoctorId}").SendAsync("QueueUpdated", new { booking_id = bookingId, doctor_id = booking.DoctorId, status = booking.Status.ToString() }));
+            try // the move is committed: a failed screen refresh must not turn it into an error (the queue reloads on its own)
+            {
+                await Task.WhenAll(
+                    hub.Clients.Group("staff").SendAsync("QueueUpdated", new { booking_id = bookingId, doctor_id = booking.DoctorId, status = booking.Status.ToString() }),
+                    hub.Clients.Group($"doctor:{booking.DoctorId}").SendAsync("QueueUpdated", new { booking_id = bookingId, doctor_id = booking.DoctorId, status = booking.Status.ToString() }));
+            }
+            catch (Exception) { /* broadcast only */ }
             return Ok(new
             {
                 booking_id = bookingId, from_patient_id = fromId, from_patient_code = b.Patient.PatientCode, to_patient_id = toId, patient_code = toCode,
                 queue_number = booking.QueueNumber, appointment_date = booking.AppointmentDate, moved = before, allergies_moved = movedAllergies, already = false,
             });
         }
-        catch (DbUpdateException ex)
+        catch (DbUpdateException)
         {
             await tx.RollbackAsync(ct);
-            return Conflict(new { error = "reassign_failed", message = "The visit could not be moved, so nothing was changed.", detail = ex.GetBaseException().Message });
+            return Conflict(new { error = "reassign_failed", message = "The visit could not be moved, so nothing was changed." }); // no database text to the client
         }
     }
 }
