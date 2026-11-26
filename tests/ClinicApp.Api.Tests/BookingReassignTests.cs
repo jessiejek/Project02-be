@@ -394,5 +394,30 @@ public class BookingReassignTests(ApiFixture api) : ApiTestBase(api)
         var c = await WithDb(db => db.Consultations.AsNoTracking().SingleAsync(x => x.ConsultationId == v.Cid));
         Assert.Equal(p2, c.PatientId); Assert.Equal("Amended text", c.ChiefComplaint);
     }
+
+    //JJQR - AI (2026-11-26) - GAV-11 review 2.1: the stale-patient amendment is decided from the visit, not from the audit wording (audit row removed here)
+    [Fact]
+    public async Task An_amendment_with_the_old_patient_is_still_applied_when_the_audit_row_is_missing()
+    {
+        var p1 = await NewPatientAsync("Amendnoaudit");
+        var v = await VisitAsync(p1, BookingStatus.Completed, finished: true, paid: true);
+        using var doc = F.As(W.DoctorA, "Doctor");
+        var p2 = (await JsonOf(await PostAsync(doc, v.Bid, NewBody(last: "Amendnoauditmoved")))).GetProperty("to_patient_id").GetGuid();
+        await WithDb(async db => { await db.AuditLogs.Where(a => a.Action == "Wrong patient fixed" && (a.EntityId == v.Cid || a.EntityId == v.Bid)).ExecuteDeleteAsync(); return 0; });
+        var crv = await WithDb(db => db.Consultations.AsNoTracking().Where(c => c.ConsultationId == v.Cid).Select(c => c.RowVersion).SingleAsync());
+        using var node = await NodeAsync();
+        var r = await PushOneAsync(node, Op("consultation", v.Cid, new Dictionary<string, object?>
+        {
+            ["consultation"] = new Dictionary<string, object?>
+            {
+                ["consultation_id"] = v.Cid, ["booking_id"] = v.Bid, ["patient_id"] = p1, ["doctor_id"] = W.DoctorA.RowId, ["status"] = "Amended",
+                ["chief_complaint"] = "Amended without audit", ["created_at"] = DateTimeOffset.UtcNow, ["updated_at"] = DateTimeOffset.UtcNow,
+            },
+        }, "update", crv));
+        Assert.NotEqual("rejected", r.GetProperty("status").GetString());
+        var c = await WithDb(db => db.Consultations.AsNoTracking().SingleAsync(x => x.ConsultationId == v.Cid));
+        Assert.Equal(p2, c.PatientId); Assert.Equal("Amended without audit", c.ChiefComplaint);
+    }
+    //JJQR - END
 }
 //JJQR - END

@@ -11,17 +11,20 @@ using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR; //JJQR - AI (2026-11-26) - GAV-12 why: IHubContext for the QueueUpdated broadcast after a merge //JJQR - END
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
 
 [ApiController]
-//JJQR - AI (2026-11-26) - GAV-12 why: owner 26 Nov: the DOCTOR merges too ("Merge to existing patient" while consulting); the front desk does not. Unmerge stays admin-only (below).
-[Authorize(Roles = "Admin,Doctor")]
+//JJQR - AI (2026-11-26) - GAV-12 review 3.1 why: class-level and action-level role lists are combined as AND, so a class "Admin,Doctor" made Staff get 403 on
+// GET merged-into. The class now only needs a signed-in user; EVERY action names its own roles (merge + preview: Admin,Doctor; unmerge: Admin; merged-into: Admin,Staff,Doctor).
+[Authorize]
 //JJQR - END
 [Route("api/patients")]
+//JJQR - AI (2026-11-26) - GAV-12 why: + hub (today's moved visits refresh the queue screens)
 public class PatientMergeController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) : ControllerBase
+//JJQR - END
 {
     // never copied from the other record: identity, keys, sync columns, and the privacy consent state (a consent belongs to the person who gave it)
     private static readonly HashSet<string> NeverFilled = new(StringComparer.Ordinal)
@@ -86,6 +89,7 @@ public class PatientMergeController(ClinicAppDbContext db, IHubContext<ClinicHub
 
     /// <summary>The two records side by side, with what each holds, so the admin can choose which to keep.</summary>
     [HttpGet("merge-preview")]
+    [Authorize(Roles = "Admin,Doctor")] //JJQR - AI (2026-11-26) - GAV-12 review 3.1: owner 26 Nov: the DOCTOR merges too; the front desk does not //JJQR - END
     public async Task<IActionResult> Preview([FromQuery(Name = "keep")] Guid keepId, [FromQuery(Name = "merge")] Guid mergeId, CancellationToken ct)
     {
         var (keep, merge, error) = await LoadPairAsync(keepId, mergeId, ct);
@@ -103,11 +107,27 @@ public class PatientMergeController(ClinicAppDbContext db, IHubContext<ClinicHub
     }
 
     [HttpPost("merge")]
+    [Authorize(Roles = "Admin,Doctor")] //JJQR - AI (2026-11-26) - GAV-12 review 3.1: owner 26 Nov: the DOCTOR merges too; the front desk does not //JJQR - END
     public async Task<IActionResult> Merge(MergeRequest request, CancellationToken ct)
     {
         var note = request.Note?.Trim() ?? "";
         if (note.Length < 5) return BadRequest(new { message = "Write a note of at least 5 characters." });
         if (note.Length > 1000) return BadRequest(new { message = "The note is too long (1000 characters at most)." });
+        //JJQR - AI (2026-11-26) - GAV-12 review 1.1 why: a resend after a lost reply (the merge already went through) answers OK with already=true, not
+        // "already merged or removed", so the doctor never sees an error for a merge that worked. Nothing is changed a second time.
+        if (request.KeepPatientId != Guid.Empty && request.MergePatientId != Guid.Empty && request.KeepPatientId != request.MergePatientId)
+        {
+            var gone = await db.Patients.AsNoTracking().Where(p => p.PatientId == request.MergePatientId)
+                .Select(p => new { p.PatientCode, p.MergedIntoPatientId, p.DeletedAt }).FirstOrDefaultAsync(ct);
+            if (gone is { MergedIntoPatientId: Guid into, DeletedAt: not null }
+                && (into == request.KeepPatientId || await PatientMerges.KeeperOfAsync(db, request.MergePatientId, ct) == request.KeepPatientId))
+            {
+                var keptCode = await db.Patients.AsNoTracking().Where(p => p.PatientId == request.KeepPatientId).Select(p => p.PatientCode).FirstOrDefaultAsync(ct);
+                return Ok(new { kept_patient_id = request.KeepPatientId, kept_patient_code = keptCode, merged_patient_id = request.MergePatientId, merged_patient_code = gone.PatientCode,
+                    moved = new Dictionary<string, int>(), filled_fields = Array.Empty<string>(), already = true });
+            }
+        }
+        //JJQR - END
         var (keep, merge, error) = await LoadPairAsync(request.KeepPatientId, request.MergePatientId, ct);
         if (error is not null) return error;
         if (keep!.UserId != null && merge!.UserId != null)

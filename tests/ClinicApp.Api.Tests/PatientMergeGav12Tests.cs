@@ -281,5 +281,30 @@ public class PatientMergeGav12Tests(ApiFixture api) : ApiTestBase(api)
         }
         Assert.Equal(keep.ToString(), found);
     }
+
+    //JJQR - AI (2026-11-26) - GAV-12 review 1.1 + 3.1: a resend after a lost reply answers OK (already), and the front desk can read merged-into but not merge
+    [Fact]
+    public async Task A_merge_resend_answers_ok_already_and_staff_can_read_merged_into_but_not_merge()
+    {
+        var keep = await NewPatientAsync("Resendkeep", "Zqr");
+        var gone = await NewPatientAsync("Resendgone", "Zqr");
+        using var doc = F.As(W.DoctorA, "Doctor");
+        await ShouldBe(HttpStatusCode.OK, await doc.PostAsync("/api/patients/merge", ApiFactory.Body(Body(keep, gone))));
+        var again = await doc.PostAsync("/api/patients/merge", ApiFactory.Body(Body(keep, gone)));
+        await ShouldBe(HttpStatusCode.OK, again);
+        var aj = await JsonOf(again);
+        Assert.True(aj.GetProperty("already").GetBoolean());
+        Assert.Equal(keep, aj.GetProperty("kept_patient_id").GetGuid());
+        var other = await NewPatientAsync("Resendother", "Zqr");                              // the same record into a DIFFERENT patient is still refused
+        await ShouldBe(HttpStatusCode.Conflict, await doc.PostAsync("/api/patients/merge", ApiFactory.Body(Body(other, gone))));
+
+        using var staff = F.As(W.Staff, "Staff");
+        var mi = await staff.GetAsync($"/api/patients/{gone}/merged-into");
+        await ShouldBe(HttpStatusCode.OK, mi);
+        Assert.Equal(keep, (await JsonOf(mi)).GetProperty("merged_into_patient_id").GetGuid());
+        await ShouldBe(HttpStatusCode.Forbidden, await staff.PostAsync("/api/patients/merge", ApiFactory.Body(Body(keep, other))));
+        await ShouldBe(HttpStatusCode.Forbidden, await staff.GetAsync($"/api/patients/merge-preview?keep={keep}&merge={other}"));
+    }
+    //JJQR - END
 }
 //JJQR - END

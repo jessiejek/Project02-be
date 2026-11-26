@@ -655,12 +655,14 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         bool Has(string col) => values.Keys.Any(k => SyncRows.Name(k) == col);
         //JJQR - AI (2026-11-26) - GAV-11 why: after "Wrong patient?" a computer may still hold the patient the visit was moved AWAY from. That stale
         // patient_id is never applied (AmendFixed) and no longer blocks the doctor's amendment. Any other patient / doctor / booking change is still refused.
-        var stalePatientAfterMove = Has("patient_id") && incoming.PatientId != existing.PatientId
-            && (await db.AuditLogs.AsNoTracking().AnyAsync(a => a.EntityType == AuditEntityType.Consultation && a.EntityId == existing.ConsultationId
-                && a.Action == "Wrong patient fixed" && a.Details != null && a.Details.Contains(incoming.PatientId.ToString()), ct)
-                //JJQR - AI (2026-11-26) - GAV-12 why: after a MERGE the computer may still hold the merged-away patient's id; that is the same person, so it never blocks the amendment
+        //JJQR - AI (2026-11-26) - GAV-11/12 review 2.1 why: decided from the DATA, not from audit wording. patient_id always follows the visit (booking):
+        // when this is the same visit and the cloud consultation's patient is that visit's patient, a different incoming patient_id is only a
+        // computer that has not pulled the move / merge yet. It is never applied (AmendFixed), so it no longer blocks the doctor's amendment.
+        var sameVisit = !Has("booking_id") || incoming.BookingId == existing.BookingId;
+        var stalePatientAfterMove = Has("patient_id") && incoming.PatientId != existing.PatientId && sameVisit
+            && (await db.Bookings.AsNoTracking().AnyAsync(b => b.BookingId == existing.BookingId && b.PatientId == existing.PatientId, ct)
                 || await PatientMerges.KeeperOfAsync(db, incoming.PatientId, ct) == existing.PatientId);
-                //JJQR - END
+        //JJQR - END
         if ((Has("patient_id") && incoming.PatientId != existing.PatientId && !stalePatientAfterMove) || (Has("doctor_id") && incoming.DoctorId != existing.DoctorId)
             || (Has("booking_id") && incoming.BookingId != existing.BookingId))
             return Fail(op, SyncStatuses.Rejected, SyncReasons.InvalidPayload, "patient_id, doctor_id and booking_id cannot change in an amendment.");
@@ -806,6 +808,7 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         if (doc.TryGetProperty("diagnoses", out var dx))
             await ReplaceSetAsync(await db.ConsultationDiagnoses.Where(x => x.ConsultationId == cid).ToListAsync(ct), dx,
                 x => x.Id, x => x.ConsultationId = cid, ct);
+        //JJQR - AI (2026-11-26) - GAV-11 why: lab orders, vaccinations, follow-up and certificate take the consultation's (cloud) patient (x.PatientId = pid), never a stale one
         if (doc.TryGetProperty("lab_orders", out var labs))
             await ReplaceSetAsync(await db.LabOrders.Where(x => x.ConsultationId == cid).ToListAsync(ct), labs,
                 x => x.LabOrderId, x => { x.ConsultationId = cid; x.PatientId = pid; }, ct);
@@ -818,6 +821,7 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         if (doc.TryGetProperty("medical_certificate", out var mc))
             await ReplaceSetAsync(await db.MedicalCertificates.Where(x => x.ConsultationId == cid).ToListAsync(ct), AsArray(mc),
                 x => x.CertificateId, x => { x.ConsultationId = cid; x.PatientId = pid; }, ct);
+        //JJQR - END
         if (doc.TryGetProperty("prescription", out var rx))
         {
             var groups = await db.PrescriptionGroups.Where(g => g.BookingId == c.BookingId).ToListAsync(ct);
