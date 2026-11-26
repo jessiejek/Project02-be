@@ -183,6 +183,34 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
                 : await Done(op, SyncStatuses.Merged, SyncReasons.PatientCodeTaken, "A cloud patient code was assigned.", kept, ct);
         }
 
+        //JJQR - AI (2026-11-26) - GAV-12 why: a computer that was offline during a merge still edits the merged-away patient. Its change goes to the KEPT record
+        // (only fields that are blank there; allergies combined), the merged-away row is never written, and the answer tells the computer to retire its copy.
+        if (existing.MergedIntoPatientId is not null && await PatientMerges.KeeperOfAsync(db, id, ct) is Guid keeperId
+            && await db.Patients.FirstOrDefaultAsync(p => p.PatientId == keeperId, ct) is { } keeper)
+        {
+            var filledOnKeeper = new List<string>();
+            foreach (var prop in values.Keys.Where(p => !PatientFixed.Contains(SyncRows.Name(p)) && !SyncRows.ServerColumns.Contains(SyncRows.Name(p))
+                         && SyncRows.Name(p) is not ("merged_into_patient_id" or "deleted_at" or "consented_at" or "consent_version" or "consent_withdrawn_at" or "is_guest" or "is_email_verified")))
+            {
+                var mine = SyncRows.Get(keeper, prop);
+                var theirs = values[prop];
+                var mineEmpty = mine is null || (mine is string ms && string.IsNullOrWhiteSpace(ms));
+                var theirsEmpty = theirs is null || (theirs is string ts && string.IsNullOrWhiteSpace(ts));
+                if (mineEmpty && !theirsEmpty) { prop.PropertyInfo!.SetValue(keeper, theirs); filledOnKeeper.Add(SyncRows.Name(prop)); }
+            }
+            if (op.Data.TryGetProperty("allergies", out var mergedAllergies)) await ApplyAllergiesAsync(keeperId, mergedAllergies, false, ct); // union, never replaces
+            keeper.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            var keptCode = keeper.PatientCode;
+            return new SyncOperationResult
+            {
+                OperationId = op.OperationId, Aggregate = op.Aggregate, EntityId = op.EntityId, Status = SyncStatuses.Merged, RowVersion = existing.RowVersion,
+                ReasonCode = SyncReasons.PatientMerged, ConflictFields = ["merged_into_patient_id:" + keeperId],
+                Message = $"This patient was merged into {keptCode} on the clinic server; the change went to that record" + (filledOnKeeper.Count > 0 ? $" (filled: {string.Join(", ", filledOnKeeper)})." : "."),
+            };
+        }
+        //JJQR - END
+
         var incoming = new Patient();
         SyncRows.Set(incoming, values);
         var candidates = values.Keys.Where(p => !PatientFixed.Contains(SyncRows.Name(p)) && !SyncRows.ServerColumns.Contains(SyncRows.Name(p)))
@@ -238,6 +266,10 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             incoming.BookingId = id;
             if (incoming.CreatedAt == default) incoming.CreatedAt = DateTimeOffset.UtcNow;
             if (incoming.UpdatedAt == default) incoming.UpdatedAt = incoming.CreatedAt;
+            //JJQR - AI (2026-11-26) - GAV-12 why: a visit made offline for a patient that was merged away meanwhile lands on the KEPT patient (never on the hidden record)
+            var bookingRedirected = false;
+            if (await PatientMerges.KeeperOfAsync(db, incoming.PatientId, ct) is Guid bookingKeeper) { incoming.PatientId = bookingKeeper; bookingRedirected = true; }
+            //JJQR - END
             //JJQR - AI (Nov 21, 2026) queue numbers: keep the node's number unless a live booking already holds it (contract §5.2)
             var (queueNo, queueMoved) = await ReconcileQueueNumberAsync(id, incoming.AppointmentDate, incoming.PatientId, incoming.DiscountCategory, incoming.QueueNumber, ct);
             incoming.QueueNumber = queueNo;
@@ -245,6 +277,11 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
             db.Bookings.Add(incoming);
             if (hasServices && await ReplaceServicesAsync(incoming, servicesEl, ct) is { } missing) return missing(op);
             await db.SaveChangesAsync(ct);
+            //JJQR - AI (2026-11-26) - GAV-12: the computer takes the cloud copy (the kept patient's id) and updates its visit
+            if (bookingRedirected)
+                return await Done(op, SyncStatuses.Merged, SyncReasons.PatientReassigned, "This patient was merged into another record on the clinic server; the visit was put on the kept patient.",
+                    queueMoved ? ["patient_id", "queue_number"] : ["patient_id"], ct);
+            //JJQR - END
             //JJQR - AI (Nov 21, 2026) queue numbers
             if (queueMoved)
                 return await Done(op, SyncStatuses.Merged, SyncReasons.QueueNumberReassigned,
@@ -619,8 +656,11 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         //JJQR - AI (2026-11-26) - GAV-11 why: after "Wrong patient?" a computer may still hold the patient the visit was moved AWAY from. That stale
         // patient_id is never applied (AmendFixed) and no longer blocks the doctor's amendment. Any other patient / doctor / booking change is still refused.
         var stalePatientAfterMove = Has("patient_id") && incoming.PatientId != existing.PatientId
-            && await db.AuditLogs.AsNoTracking().AnyAsync(a => a.EntityType == AuditEntityType.Consultation && a.EntityId == existing.ConsultationId
-                && a.Action == "Wrong patient fixed" && a.Details != null && a.Details.Contains(incoming.PatientId.ToString()), ct);
+            && (await db.AuditLogs.AsNoTracking().AnyAsync(a => a.EntityType == AuditEntityType.Consultation && a.EntityId == existing.ConsultationId
+                && a.Action == "Wrong patient fixed" && a.Details != null && a.Details.Contains(incoming.PatientId.ToString()), ct)
+                //JJQR - AI (2026-11-26) - GAV-12 why: after a MERGE the computer may still hold the merged-away patient's id; that is the same person, so it never blocks the amendment
+                || await PatientMerges.KeeperOfAsync(db, incoming.PatientId, ct) == existing.PatientId);
+                //JJQR - END
         if ((Has("patient_id") && incoming.PatientId != existing.PatientId && !stalePatientAfterMove) || (Has("doctor_id") && incoming.DoctorId != existing.DoctorId)
             || (Has("booking_id") && incoming.BookingId != existing.BookingId))
             return Fail(op, SyncStatuses.Rejected, SyncReasons.InvalidPayload, "patient_id, doctor_id and booking_id cannot change in an amendment.");
@@ -891,9 +931,22 @@ public sealed partial class SyncPushEngine(ClinicAppDbContext db, IPatientCodeAl
         if (await db.PatientConsents.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return Done0(op, SyncStatuses.Duplicate, null);
         if (!await db.Patients.AnyAsync(p => p.PatientId == c.PatientId, ct))
             return Fail(op, SyncStatuses.Retry, SyncReasons.MissingDependency, "Patient not in the cloud yet.");
+        //JJQR - AI (2026-11-26) - GAV-12 why: a consent recorded offline for a merged-away patient belongs to the kept record
+        var consentKeeper = await PatientMerges.KeeperOfAsync(db, c.PatientId, ct);
+        if (consentKeeper is Guid ck) c.PatientId = ck;
+        //JJQR - END
         if (c.DecidedAt == default) c.DecidedAt = DateTimeOffset.UtcNow;
         db.PatientConsents.Add(c);
         await db.SaveChangesAsync(ct);
+        //JJQR - AI (2026-11-26) - GAV-12
+        if (consentKeeper is Guid k2)
+        {
+            var r = Ok(op, 0);
+            r.ReasonCode = SyncReasons.PatientReassigned; r.ConflictFields = ["merged_into_patient_id:" + k2];
+            r.Message = "This patient was merged into another record on the clinic server; the consent was recorded on the kept patient.";
+            return r;
+        }
+        //JJQR - END
         return Ok(op, 0);
     }
     //JJQR - END

@@ -47,6 +47,9 @@ public static class SyncReasons
     //JJQR - AI (2026-11-26) - GAV-11: a visit was moved to another patient on the cloud ("Wrong patient?"); a push never moves it back
     public const string PatientReassigned = "patient_reassigned";
     //JJQR - END
+    //JJQR - AI (2026-11-26) - GAV-12: the pushed patient was merged into another record on the cloud; the change went to the kept record (blank fields only, allergies combined)
+    public const string PatientMerged = "patient_merged";
+    //JJQR - END
     //JJQR - AI (Nov 21, 2026) offline self-edits (doctor / doctor_schedule / doctor_blocked_date)
     public const string ActorRequired = "actor_required";
     public const string ActorUnknown = "actor_unknown";

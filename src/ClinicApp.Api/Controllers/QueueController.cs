@@ -47,6 +47,10 @@ public class QueueController(ClinicAppDbContext db, IHubContext<ClinicHub> hub, 
     {
         var patient = await db.Patients.SingleOrDefaultAsync(p => p.PatientId == req.PatientId, ct);
         if (patient is null) return BadRequest(new { message = "Patient not found." });
+        //JJQR - AI (2026-11-26) - GAV-12 why: never check in a merged-away patient
+        if (patient.MergedIntoPatientId is Guid keptId)
+            return Conflict(new { error = "patient_merged", merged_into_patient_id = keptId, message = "This patient was merged into another record. Check in the kept patient instead." });
+        //JJQR - END
 
         // The clinic has exactly one doctor (owner-confirmed). Take it.
         var doctor = await db.Doctors.Include(d => d.StaffAccount)

@@ -22,7 +22,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
     [HttpGet]
     public async Task<ActionResult<List<Patient>>> GetAll([FromQuery] string? search, CancellationToken ct)
     {
-        var query = db.Patients.AsNoTracking().AsQueryable();
+        var query = db.Patients.AsNoTracking().Where(p => p.DeletedAt == null && p.MergedIntoPatientId == null).AsQueryable(); //JJQR - AI (2026-11-26) - GAV-12 why: a merged-away patient is never listed (its chart redirects) //JJQR - END
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim();
@@ -48,7 +48,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
-        var query = db.Patients.AsNoTracking().AsQueryable();
+        var query = db.Patients.AsNoTracking().Where(p => p.DeletedAt == null && p.MergedIntoPatientId == null).AsQueryable(); //JJQR - AI (2026-11-26) - GAV-12 why: a merged-away patient is never found by search //JJQR - END
         if (!string.IsNullOrWhiteSpace(q))
         {
             var s = q.Trim();
@@ -229,6 +229,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         //JJQR - AI (Nov 21, 2026) cloud sync: allergies belong to the patient document, so touching them bumps the patient's row_version
         var patientRow = await db.Patients.FirstOrDefaultAsync(p => p.PatientId == id, ct);
         if (patientRow is null) return NotFound();
+        if (patientRow.MergedIntoPatientId is not null || patientRow.DeletedAt is not null) return Retired(patientRow); //JJQR - AI (2026-11-26) - GAV-12 //JJQR - END
         patientRow.UpdatedAt = DateTimeOffset.UtcNow;
         //JJQR - END
 
@@ -296,6 +297,7 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
 
         var patient = await db.Patients.SingleOrDefaultAsync(p => p.PatientId == id, ct);
         if (patient is null) return NotFound();
+        if (patient.MergedIntoPatientId is not null || patient.DeletedAt is not null) return Retired(patient); //JJQR - AI (2026-11-26) - GAV-12 //JJQR - END
 
         // JJQR - AI (Nov 20, 2026) - B-01 / B-33: same rules as create (email is not editable here, so it is not checked)
         payload.Email = patient.Email;
@@ -384,6 +386,14 @@ public class PatientsController(ClinicAppDbContext db, ActorResolver actors, IPa
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
+    //JJQR - END
+
+    //JJQR - AI (2026-11-26) - GAV-12 why: a merged-away patient is read-only; the answer names the record to use instead
+    private ConflictObjectResult Retired(Patient p) => Conflict(new
+    {
+        error = "patient_merged", merged_into_patient_id = p.MergedIntoPatientId,
+        message = "This patient was merged into another record. Open the kept patient's chart instead.",
+    });
     //JJQR - END
 
     private Guid? CurrentUserId()

@@ -4,19 +4,24 @@
 using System.Reflection;
 using System.Security.Claims;
 using ClinicApp.Api.Auditing;
+using ClinicApp.Api.Hubs; //JJQR - AI (2026-11-26) - GAV-12 why: screens showing a moved visit refresh //JJQR - END
+using ClinicApp.Domain;
 using ClinicApp.Domain.Entities;
 using ClinicApp.Domain.Enums;
 using ClinicApp.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicApp.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin")]
+//JJQR - AI (2026-11-26) - GAV-12 why: owner 26 Nov: the DOCTOR merges too ("Merge to existing patient" while consulting); the front desk does not. Unmerge stays admin-only (below).
+[Authorize(Roles = "Admin,Doctor")]
+//JJQR - END
 [Route("api/patients")]
-public class PatientMergeController(ClinicAppDbContext db) : ControllerBase
+public class PatientMergeController(ClinicAppDbContext db, IHubContext<ClinicHub> hub) : ControllerBase
 {
     // never copied from the other record: identity, keys, sync columns, and the privacy consent state (a consent belongs to the person who gave it)
     private static readonly HashSet<string> NeverFilled = new(StringComparer.Ordinal)
@@ -27,6 +32,19 @@ public class PatientMergeController(ClinicAppDbContext db) : ControllerBase
     };
 
     public sealed record MergeRequest(Guid KeepPatientId, Guid MergePatientId, string? Note);
+    //JJQR - AI (2026-11-26) - GAV-12 why: light undo for an admin: the merged-away record comes back; its visits stay on the kept patient (move them back one by one with "Wrong patient?")
+    public sealed record UnmergeRequest(string? Note);
+    private static readonly BookingStatus[] Active = [BookingStatus.CheckedIn, BookingStatus.InProgress, BookingStatus.OnHold];
+
+    /// <summary>Visits of this patient that are open today (checked in, being consulted or on hold): merging is allowed, the screen warns first.</summary>
+    private async Task<List<object>> ActiveTodayAsync(Guid id, CancellationToken ct)
+    {
+        var today = ClinicClock.Today;
+        return (await db.Bookings.AsNoTracking().Where(b => b.PatientId == id && b.AppointmentDate == today).Select(b => new { b.BookingId, b.QueueNumber, b.Status }).ToListAsync(ct))
+            .Where(b => Active.Contains(b.Status))
+            .Select(b => (object)new { booking_id = b.BookingId, queue_number = b.QueueNumber, status = b.Status.ToString() }).ToList();
+    }
+    //JJQR - END
 
     private async Task<Dictionary<string, int>> CountsAsync(Guid id, CancellationToken ct) => new()
     {
@@ -52,6 +70,7 @@ public class PatientMergeController(ClinicAppDbContext db) : ControllerBase
         patient_id = p.PatientId, patient_code = p.PatientCode, first_name = p.FirstName, middle_name = p.MiddleName, last_name = p.LastName,
         date_of_birth = p.DateOfBirth, sex = p.Sex.ToString(), contact_number = p.ContactNumber, email = p.Email, address = p.Address, city = p.City,
         has_account = p.UserId != null, created_at = p.CreatedAt, counts,
+        civil_status = p.CivilStatus, blood_type = p.BloodType, philhealth_number = p.PhilhealthNumber, hmo_provider = p.HmoProvider, //JJQR - AI (2026-11-26) - GAV-12 more rows in the side-by-side compare //JJQR - END
     };
 
     private async Task<(Patient? Keep, Patient? Merge, IActionResult? Error)> LoadPairAsync(Guid keepId, Guid mergeId, CancellationToken ct)
@@ -76,6 +95,10 @@ public class PatientMergeController(ClinicAppDbContext db) : ControllerBase
             keep = Card(keep!, await CountsAsync(keep!.PatientId, ct)),
             merge = Card(merge!, await CountsAsync(merge!.PatientId, ct)),
             both_have_accounts = keep.UserId != null && merge.UserId != null,
+            //JJQR - AI (2026-11-26) - GAV-12 why: warn (never block) when either has a visit open today; that visit moves to the kept patient
+            keep_active_today = await ActiveTodayAsync(keep.PatientId, ct),
+            merge_active_today = await ActiveTodayAsync(merge.PatientId, ct),
+            //JJQR - END
         });
     }
 
@@ -129,12 +152,20 @@ public class PatientMergeController(ClinicAppDbContext db) : ControllerBase
             foreach (var x in await db.DataRequests.Where(x => x.PatientId == mergeId).ToListAsync(ct)) x.PatientId = keepId;
             foreach (var x in await db.Reviews.Where(x => x.PatientId == mergeId).ToListAsync(ct)) x.PatientId = keepId;
             // allergies: the union (an allergen the kept patient already has is not copied twice)
-            var haveAllergens = (await db.PatientAllergies.Where(a => a.PatientId == keepId).Select(a => a.Allergen).ToListAsync(ct)).Select(a => a.Trim().ToLowerInvariant()).ToHashSet();
-            foreach (var a in await db.PatientAllergies.Where(a => a.PatientId == mergeId).ToListAsync(ct))
+            //JJQR - AI (2026-11-26) - GAV-12 why: "no known allergies" (NKDA) is not an allergen: a real allergy replaces it, and it is never kept twice (same rule as GAV-11)
+            var keepRows = await db.PatientAllergies.Where(a => a.PatientId == keepId).ToListAsync(ct);
+            var mergeRows = await db.PatientAllergies.Where(a => a.PatientId == mergeId).ToListAsync(ct);
+            var haveAllergens = keepRows.Where(a => !a.IsNkda).Select(a => a.Allergen.Trim().ToLowerInvariant()).ToHashSet();
+            if (mergeRows.Any(a => !a.IsNkda)) { db.PatientAllergies.RemoveRange(keepRows.Where(a => a.IsNkda)); keepRows.RemoveAll(a => a.IsNkda); }
+            foreach (var a in mergeRows)
             {
-                if (haveAllergens.Contains(a.Allergen.Trim().ToLowerInvariant())) db.PatientAllergies.Remove(a);
-                else a.PatientId = keepId;
+                var dup = a.IsNkda ? (haveAllergens.Count > 0 || keepRows.Any(k => k.IsNkda) || mergeRows.Any(m => !m.IsNkda)) : haveAllergens.Contains(a.Allergen.Trim().ToLowerInvariant());
+                if (dup) db.PatientAllergies.Remove(a);
+                else { a.PatientId = keepId; a.UpdatedAt = DateTimeOffset.UtcNow; if (!a.IsNkda) haveAllergens.Add(a.Allergen.Trim().ToLowerInvariant()); else keepRows.Add(a); }
             }
+            // an earlier merge INTO the merged-away patient now points at the kept one (old links still land on the right chart)
+            foreach (var older in await db.Patients.Where(x => x.MergedIntoPatientId == mergeId).ToListAsync(ct)) { older.MergedIntoPatientId = keepId; older.UpdatedAt = DateTimeOffset.UtcNow; }
+            //JJQR - END
 
             // 3. the other patient is marked merged (and soft-deleted, so desktops drop it from their lists)
             merge.MergedIntoPatientId = keepId;
@@ -155,16 +186,68 @@ public class PatientMergeController(ClinicAppDbContext db) : ControllerBase
             AuditLogWriter.Add(db, AuditEntityType.Patient, keepId, "Patients merged", me,
                 $"Merged patient {merge.PatientCode} ({mergeId}) into {keep.PatientCode} ({keepId}). Moved: " + (before.Any(kv => kv.Value > 0) ? string.Join(", ", before.Where(kv => kv.Value > 0).Select(kv => $"{kv.Value} {kv.Key}")) : "no records")
                 + (filled.Count > 0 ? $". Filled empty fields: {string.Join(", ", filled)}" : "") + ". Note: " + note);
+            //JJQR - AI (2026-11-26) - GAV-12: the merged-away record gets its own audit row too (its old link shows "Merged into ...")
+            AuditLogWriter.Add(db, AuditEntityType.Patient, mergeId, "Merged into another patient", me, $"Merged into {keep.PatientCode} ({keepId}). Note: " + note);
+            var movedToday = await db.Bookings.AsNoTracking().Where(b => b.PatientId == mergeId && b.AppointmentDate == ClinicClock.Today).Select(b => new { b.BookingId, b.DoctorId, b.Status }).ToListAsync(ct);
+            //JJQR - END
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
-            return Ok(new { kept_patient_id = keepId, merged_patient_id = mergeId, moved = before, filled_fields = filled });
+            //JJQR - AI (2026-11-26) - GAV-12 why: today's queue shows the kept patient's name at once; a failed broadcast after the commit is not an error
+            try
+            {
+                foreach (var b in movedToday)
+                    await Task.WhenAll(
+                        hub.Clients.Group("staff").SendAsync("QueueUpdated", new { booking_id = b.BookingId, doctor_id = b.DoctorId, status = b.Status.ToString() }, ct),
+                        hub.Clients.Group($"doctor:{b.DoctorId}").SendAsync("QueueUpdated", new { booking_id = b.BookingId, doctor_id = b.DoctorId, status = b.Status.ToString() }, ct));
+            }
+            catch (Exception) { /* broadcast only */ }
+            return Ok(new { kept_patient_id = keepId, kept_patient_code = keep.PatientCode, merged_patient_id = mergeId, merged_patient_code = merge.PatientCode, moved = before, filled_fields = filled });
+            //JJQR - END
         }
         catch (DbUpdateException ex)
         {
             await tx.RollbackAsync(ct);
-            return Conflict(new { error = "merge_failed", message = "The merge could not be completed, so nothing was changed.", detail = ex.GetBaseException().Message });
+            _ = ex; //JJQR - AI (2026-11-26) - GAV-12: no database text to the client (same as GAV-11) //JJQR - END
+            return Conflict(new { error = "merge_failed", message = "The merge could not be completed, so nothing was changed." });
         }
     }
+
+    //JJQR - AI (2026-11-26) - GAV-12 why: light Unmerge (admin only). The merged-away record is live again (searchable, editable) and every desktop gets it back on its next pull.
+    // Nothing moves back by itself: the visits stay on the kept patient; the admin moves the wrong ones back with "Wrong patient?". Allergies and filled fields stay as they are.
+    [HttpPost("{id:guid}/unmerge")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> Unmerge(Guid id, UnmergeRequest request, CancellationToken ct)
+    {
+        var note = request.Note?.Trim() ?? "";
+        if (note.Length < 5) return BadRequest(new { message = "Write a note of at least 5 characters." });
+        if (note.Length > 1000) return BadRequest(new { message = "The note is too long (1000 characters at most)." });
+        var p = await db.Patients.SingleOrDefaultAsync(x => x.PatientId == id, ct);
+        if (p is null) return NotFound(new { message = "Patient not found." });
+        if (p.MergedIntoPatientId is not Guid keptId) return Conflict(new { error = "not_merged", message = "This patient was not merged into another record." });
+        var keptCode = await db.Patients.AsNoTracking().Where(x => x.PatientId == keptId).Select(x => x.PatientCode).FirstOrDefaultAsync(ct) ?? "?";
+        p.MergedIntoPatientId = null;
+        p.DeletedAt = null;
+        p.UpdatedAt = DateTimeOffset.UtcNow;
+        var me = CurrentUserId();
+        AuditLogWriter.Add(db, AuditEntityType.Patient, id, "Patient unmerged", me, $"Unmerged {p.PatientCode} ({id}) from {keptCode} ({keptId}); its visits stay on {keptCode}. Note: " + note);
+        AuditLogWriter.Add(db, AuditEntityType.Patient, keptId, "Patient unmerged", me, $"{p.PatientCode} ({id}) was unmerged from this record; visits stay here. Note: " + note);
+        await db.SaveChangesAsync(ct);
+        return Ok(new { patient_id = id, patient_code = p.PatientCode, was_merged_into = keptId, was_merged_into_code = keptCode });
+    }
+
+    /// <summary>For a retired chart: the record it was merged into (the end of the chain) so old links can redirect.</summary>
+    [HttpGet("{id:guid}/merged-into")]
+    [Authorize(Roles = "Admin,Staff,Doctor")]
+    public async Task<IActionResult> MergedInto(Guid id, CancellationToken ct)
+    {
+        var p = await db.Patients.AsNoTracking().Where(x => x.PatientId == id).Select(x => new { x.PatientId, x.PatientCode, x.MergedIntoPatientId }).FirstOrDefaultAsync(ct);
+        if (p is null) return NotFound();
+        if (p.MergedIntoPatientId is null) return Ok(new { patient_id = id, patient_code = p.PatientCode, merged_into_patient_id = (Guid?)null });
+        var keptId = await PatientMerges.KeeperOfAsync(db, id, ct) ?? p.MergedIntoPatientId.Value;
+        var kept = await db.Patients.AsNoTracking().Where(x => x.PatientId == keptId).Select(x => new { x.PatientCode, x.FirstName, x.LastName }).FirstOrDefaultAsync(ct);
+        return Ok(new { patient_id = id, patient_code = p.PatientCode, merged_into_patient_id = keptId, merged_into_patient_code = kept?.PatientCode, merged_into_name = kept is null ? null : $"{kept.FirstName} {kept.LastName}" });
+    }
+    //JJQR - END
 
     private Guid? CurrentUserId() => Guid.TryParse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
 }

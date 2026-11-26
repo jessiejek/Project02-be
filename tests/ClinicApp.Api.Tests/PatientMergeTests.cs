@@ -80,7 +80,7 @@ public class PatientMergeTests(ApiFixture api) : ApiTestBase(api)
 
     [Theory]
     [InlineData("Staff")]
-    [InlineData("Doctor")]
+    //JJQR - AI (2026-11-26) - GAV-12: the doctor may merge now (owner 26 Nov); see PatientMergeGav12Tests //JJQR - END
     [InlineData("Patient")]
     public async Task Only_an_admin_can_preview_or_merge(string role)
     {

@@ -40,6 +40,7 @@ public class SearchController(ClinicAppDbContext db, ActorResolver actors) : Con
         if (actor.IsStaffLike || actor.IsDoctor)
         {
             patients = await db.Patients.AsNoTracking()
+                .Where(p => p.DeletedAt == null && p.MergedIntoPatientId == null) //JJQR - AI (2026-11-26) - GAV-12 merged-away patients are not found //JJQR - END
                 .Where(p =>
                     p.FirstName.Contains(s) || p.LastName.Contains(s) ||
                     p.PatientCode.Contains(s) || p.Email.Contains(s) ||

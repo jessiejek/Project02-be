@@ -139,6 +139,10 @@ public class BookingsController(ClinicAppDbContext db, ActorResolver actors, IHu
         //JJQR - END
         var doctor = await db.Doctors.SingleOrDefaultAsync(d => d.DoctorId == request.DoctorId, ct);
         if (doctor is null) return BadRequest(new { message = "Doctor not found." });
+        //JJQR - AI (2026-11-26) - GAV-12 why: never book a merged-away patient (the visit would be invisible on the kept chart)
+        if (await db.Patients.AsNoTracking().Where(p => p.PatientId == request.PatientId).Select(p => p.MergedIntoPatientId).FirstOrDefaultAsync(ct) is Guid keptId)
+            return Conflict(new { error = "patient_merged", merged_into_patient_id = keptId, message = "This patient was merged into another record. Book the kept patient instead." });
+        //JJQR - END
 
         var services = await db.Services.Where(s => request.ServiceIds.Contains(s.ServiceId)).ToListAsync(ct);
         if (services.Count != request.ServiceIds.Count) return BadRequest(new { message = "One or more services not found." });
